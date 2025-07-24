@@ -45,12 +45,18 @@ jobs:
       - name: Build WASM
         run: wasm-pack build --target web --release
       
+      - name: Generate Documentation
+        run: cargo doc --no-deps --document-private-items
+      
       - name: Prepare deployment folder
         run: |
           mkdir -p interpreter
           cp index.html interpreter/
           cp -r pkg interpreter/
-      
+
+          mkdir -p interpreter/docs
+          cp -r target/doc/* interpreter/docs/
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
       

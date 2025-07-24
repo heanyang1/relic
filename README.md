@@ -1,10 +1,12 @@
 # Relic
 
+[![codecov](https://codecov.io/github/heanyang1/relic/graph/badge.svg?token=ZNDVPWBDNG)](https://codecov.io/github/heanyang1/relic)
+
 Relic (Rust-Enabled Lisp Interpreter and Compiler) is a minimal, self-contained Lisp system written in Rust. It contains an interpreter, a debugger, a compiler and a garbage collected runtime environment for a subset of Scheme in less than 4k lines of Rust code [^note1].
 
 Currently Relic only supports a small subset of R5RS that is sufficient to run most programs in [SICP](https://mitp-content-server.mit.edu/books/content/sectbyfn/books_pres_0/6515/sicp.zip/full-text/book/book.html) with minor modifications. It has a few extensions such as printing the environment as DOT graph, which may be useful in solving several exercises in SICP. More features of Scheme will be added as long as the feature does not add too much complexity to the system.
 
-Relic is compiled to WebAssembly and can be run on the web. [Try Relic online!]()
+Relic is compiled to WebAssembly and can be run on the web. [Try Relic online!](https://heanyang1.github.io/relic/)
 
 [^note1]: The line count does not contain test code.
 
