@@ -1,3 +1,5 @@
+//! Symbols and special forms.
+
 use std::{fmt::Display, str::FromStr};
 
 /// A special form is a symbol that does not fit in the applicative model.
@@ -312,6 +314,7 @@ impl Display for Symbol {
     }
 }
 
+/// The shorthand for `Node::Symbol(Symbol::Nil)`.
 #[macro_export]
 macro_rules! nil {
     () => {

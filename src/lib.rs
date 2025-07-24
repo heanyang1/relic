@@ -123,12 +123,14 @@ pub fn evaluate(input: &str) {
 /// The runtime that is pointed by all C bindings.
 pub static RT: LazyLock<Mutex<Runtime>> = LazyLock::new(|| Mutex::new(Runtime::new(1)));
 
+/// Initialize the runtime environment.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_start() {
     let mut rt = RT.lock().unwrap();
     rt.top_env();
 }
 
+/// Create a new closure and return its index.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_closure(
     id: usize,
@@ -143,14 +145,6 @@ pub extern "C" fn rt_new_closure(
     rt.new_closure(val)
 }
 
-/// Calls a closure.
-///
-/// The parameters are in the stack. The first element popped has name `#0`,
-/// the second element popped has name `#1`, etc.
-/// Pushes the return value to the stack when returned.
-///
-/// When an error occurs, the closure is popped from the stack and environment
-/// remains unchanged.
 fn call_closure(nparams: usize) -> Result<(), String> {
     let c = {
         let mut runtime = RT.lock().unwrap();
@@ -227,12 +221,20 @@ fn call_closure(nparams: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Calls a closure.
+///
+/// The parameters are in the stack. The first element popped has name `#0`,
+/// the second element popped has name `#1`, etc.
+/// Pushes the return value to the stack when returned.
+///
+/// When an error occurs, the closure is popped from the stack and environment
+/// remains unchanged.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_call_closure(nparams: usize) -> i32 {
     if call_closure(nparams).is_ok() {
         1
     } else {
-        log_error("Error in rt_remove_root: invalid string");
+        log_error("Error in rt_call_closure: invalid parameters");
         0
     }
 }
@@ -293,6 +295,7 @@ pub extern "C" fn rt_apply(nargs: usize) -> usize {
     }
 }
 
+/// Parse an expression from a string and return its index
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_constant(expr: *const u8) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -328,6 +331,8 @@ pub extern "C" fn rt_new_integer(value: i64) -> usize {
     let mut rt = RT.lock().unwrap();
     rt.new_number(Number::Int(value))
 }
+
+/// Create a new float and return its index
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_float(value: f64) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -437,6 +442,8 @@ pub extern "C" fn rt_get_integer(index: usize) -> i64 {
         }
     }
 }
+
+/// Get the float value
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_float(index: usize) -> f64 {
     let rt = RT.lock().unwrap();
@@ -470,6 +477,8 @@ pub extern "C" fn rt_get_symbol(index: usize) -> *mut i8 {
     }
 }
 
+/// Get the boolean value
+/// Returns 1 if the symbol is not nil, 0 if it is nil.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_bool(index: usize) -> i32 {
     let rt = RT.lock().unwrap();
@@ -478,20 +487,6 @@ pub extern "C" fn rt_get_bool(index: usize) -> i32 {
     } else {
         1
     }
-}
-
-/// Get the free space in the GC area
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_get_free() -> usize {
-    let rt = RT.lock().unwrap();
-    rt.get_free()
-}
-
-/// Get the size of the GC area
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_get_size() -> usize {
-    let rt = RT.lock().unwrap();
-    rt.get_size()
 }
 
 /// Add a root variable
@@ -535,6 +530,7 @@ pub extern "C" fn rt_get_root(name: *const u8) -> usize {
     }
 }
 
+/// Check if a node is a symbol
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
     let rt = RT.lock().unwrap();

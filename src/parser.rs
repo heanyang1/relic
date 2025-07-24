@@ -1,3 +1,5 @@
+//! The parser module.
+
 use std::str::FromStr;
 
 use crate::lexer::{Lexer, TokenType};

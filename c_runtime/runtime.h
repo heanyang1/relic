@@ -15,8 +15,6 @@ extern size_t rt_set_cdr(size_t index, size_t target);
 extern long long rt_get_integer(size_t index);
 extern double rt_get_float(size_t index);
 extern int rt_get_bool(size_t index);
-extern size_t rt_get_free(void);
-extern size_t rt_get_size(void);
 extern void rt_add_root(const char *name, size_t value);
 extern void rt_set_root(const char *name, size_t value);
 extern size_t rt_get_root(const char *name);

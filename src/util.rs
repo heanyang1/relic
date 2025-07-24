@@ -1,3 +1,5 @@
+//! Utility functions.
+
 use std::{cell::RefCell, collections::HashMap, ffi::c_void, fmt::Display, rc::Rc};
 
 use crate::{lexer::Number, nil, node::Node, symbol::Symbol};

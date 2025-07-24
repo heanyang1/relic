@@ -1,3 +1,5 @@
+//! The preprocessor module.
+
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
@@ -18,6 +20,7 @@ pub trait PreProcess {
         Self: Sized;
 }
 
+/// Generate a list node from a vector of nodes.
 #[macro_export]
 macro_rules! vec_to_list {
     ($e:expr) => {

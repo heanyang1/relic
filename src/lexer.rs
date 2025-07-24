@@ -1,3 +1,5 @@
+//! The lexer module.
+
 use std::{
     fmt::Display,
     ops::{Add, Div, Mul, Sub},

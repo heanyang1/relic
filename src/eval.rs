@@ -1,5 +1,7 @@
 #![allow(clippy::new_without_default)]
 
+//! The implementation of the eval-apply loop.
+
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{

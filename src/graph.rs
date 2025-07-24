@@ -1,3 +1,5 @@
+//! Functionality to print the graph representation of the environment and nodes.
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},

@@ -1,3 +1,5 @@
+//! The logger module.
+
 use std::{
     str::FromStr,
     sync::{LazyLock, Mutex},
@@ -22,14 +24,11 @@ impl FromStr for LogLevel {
     }
 }
 
-/// A very simple logger.
-///
-/// I just need something that prints to the terminal and can be opened or
-/// closed easily from outside, so I wrote this.
 pub struct Logger {
     level: LogLevel,
 }
 
+/// A very simple logger.
 impl Logger {
     fn new() -> Self {
         let level = std::env::var("LOG_LEVEL")

@@ -1,3 +1,5 @@
+//! The data structure of node and other compiled-time objects.
+
 use std::{
     cell::RefCell,
     collections::HashMap,

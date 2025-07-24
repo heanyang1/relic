@@ -1,3 +1,5 @@
+//! The runtime module.
+
 use std::{
     cell::RefCell, collections::HashMap, fmt::Display, mem::swap, rc::Rc, result::Result, vec::Vec,
 };

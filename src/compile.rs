@@ -1,3 +1,5 @@
+//! The compiler module.
+
 use std::{
     collections::HashMap,
     fmt::Display,

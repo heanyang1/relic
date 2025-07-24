@@ -1,3 +1,5 @@
+//! The environment module.
+
 /// Environment.
 ///
 /// An environment consists of a variable mapping and a pointer to an outer
