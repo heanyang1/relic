@@ -38,9 +38,9 @@ jobs:
           profile: minimal
           override: true
           components: rust-src, rustfmt, clippy
-      
-      - name: Install wasm-bindgen
-        run: cargo binstall wasm-bindgen-cli
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
       
       - name: Build WASM
         run: wasm-pack build --target web --release
