@@ -1,0 +1,7 @@
+{
+    "clangd.arguments": [
+        "--completion-style=detailed",
+        // disable header insertion
+        "--header-insertion=never"
+    ]
+}
