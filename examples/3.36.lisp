@@ -1,3 +1,8 @@
+;; This program provides the solution to exercise 3.36. It also contains the
+;; complete code of the constraint system described in the book.
+;;
+;; To see the result, you'll need to interpret or debug the program.
+
 (define (memq item x)
   (cond ((eq? x '()) '())
         ((eq? item (car x)) x)

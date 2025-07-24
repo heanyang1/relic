@@ -1,3 +1,7 @@
+;; Exercise 4.25 tries to implement a lazy `factorial` in applicative-order
+;; Scheme. The program will stack overflow if you run it directly. You can use
+;; the debugger to see what has happened.
+
 (define (unless condition usual-value exceptional-value)
   (if condition exceptional-value usual-value))
 (define (factorial n)

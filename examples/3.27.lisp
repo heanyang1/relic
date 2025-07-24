@@ -1,3 +1,8 @@
+;; Exercise 3.27 defines a `memoize` function. This program prints the
+;; environment graph before and after a memoized `fib` is called.
+;;
+;; To see the result, you'll need to interpret or debug the program.
+
 (define (caar x) (car (car x)))
 
 (define (lookup key table)

@@ -1,3 +1,9 @@
+;; In exercise 3.63, Louis Reasoner proposed a simpler but slower version of
+;; `sqrt-stream`. This program compares the difference in the environment
+;; between the two streams.
+;;
+;; To see the result, you'll need to interpret or debug the program.
+
 (define (memo-proc proc)
   (let ((already-run? '()) (result '()))
     (lambda ()
