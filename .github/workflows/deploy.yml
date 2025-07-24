@@ -40,7 +40,7 @@ jobs:
           components: rust-src, rustfmt, clippy
       
       - name: Install wasm-bindgen
-        run: cargo install wasm-bindgen-cli
+        run: cargo binstall wasm-bindgen-cli
       
       - name: Build WASM
         run: wasm-pack build --target web --release
