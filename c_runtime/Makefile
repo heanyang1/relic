@@ -22,9 +22,9 @@ library:
 	cargo build --lib
 
 # Pattern rule to build any test executable
-$(BUILD_DIR)/%: tests/%.c library
+$(BUILD_DIR)/%: tests/%.c library $(BUILD_DIR)
 	@clang-format -i $<
-	$(CC) $(CFLAGS) -o $@ $< -L$(LIB_DIR) -l$(LIB_NAME) $(LDFLAGS)
+	@$(CC) $(CFLAGS) -o $@ $< -L$(LIB_DIR) -l$(LIB_NAME) $(LDFLAGS)
 	@echo "+ CC $< -> $@"
 
 clean:
