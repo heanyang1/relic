@@ -6,10 +6,10 @@
 
 // Runtime functions.
 extern void rt_start();
-extern size_t rt_new_symbol(const char *name);
-extern size_t rt_new_integer(long long value);
-extern size_t rt_new_float(double value);
-extern size_t rt_new_constant(const char *expr);
+extern void rt_new_symbol(const char *name);
+extern void rt_new_integer(long long value);
+extern void rt_new_float(double value);
+extern void rt_new_constant(const char *expr);
 extern size_t rt_set_car(size_t index, size_t target);
 extern size_t rt_set_cdr(size_t index, size_t target);
 extern long long rt_get_integer(size_t index);
@@ -32,5 +32,5 @@ extern size_t rt_get(const char *name);
 extern char *rt_get_symbol(size_t index);
 extern void rt_apply(size_t nargs);
 extern void rt_call_closure(size_t nargs);
-extern size_t rt_new_closure(size_t id, void (*func)(void), size_t nargs, int variadic);
+extern void rt_new_closure(size_t id, void (*func)(void), size_t nargs, int variadic);
 extern int rt_is_symbol(size_t index);

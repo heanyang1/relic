@@ -9,7 +9,7 @@ use crate::{
     graph::PrintState,
     lexer::Number,
     nil,
-    node::{Node, NodeEnv, Pattern, pattern_matching},
+    node::{pattern_matching, Node, NodeEnv, Pattern},
     symbol::{SpecialForm, Symbol},
     util::{eval_arith, eval_rel, exactly_n_params, get_n_params, vectorize},
 };

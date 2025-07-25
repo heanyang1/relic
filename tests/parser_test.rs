@@ -140,7 +140,6 @@ mod tests {
             "(. 1)",
             "(1 . 2 3)",
             ".",
-            "((if (= 1 1) quote +) 2)", // special form can only be the head of a list
         ];
 
         for input in &inputs {

@@ -158,6 +158,110 @@ impl Display for Runtime {
     }
 }
 
+/// The trait that describes how to move an object into the runtime.
+pub trait LoadToRuntime {
+    /// Load the object into the top of the stack.
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String>;
+}
+
+impl LoadToRuntime for Number {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        RuntimeNode::Number(self).load_to(runtime)
+    }
+}
+
+impl LoadToRuntime for Symbol {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        RuntimeNode::Symbol(self).load_to(runtime)
+    }
+}
+
+impl LoadToRuntime for Closure {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        RuntimeNode::Closure(self).load_to(runtime)
+    }
+}
+
+impl LoadToRuntime for &str {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        Lexer::new(self).load_to(runtime)
+    }
+}
+
+impl LoadToRuntime for &mut Lexer {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        match self.next() {
+            Some(TokenType::LParem) => parse_list(self, runtime),
+            Some(TokenType::Quote) => panic!("You don't need to quote in the runtime."),
+            Some(TokenType::Comment) => self.load_to(runtime),
+            Some(TokenType::Number(i)) => i.load_to(runtime),
+            Some(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
+            Some(TokenType::RParem) => Err(format!(
+                "At position {}: Unexpected \")\"",
+                self.get_cur_pos()
+            )),
+            Some(TokenType::Dot) => Err(format!(
+                "At position {}: Unexpected \".\"",
+                self.get_cur_pos()
+            )),
+            None => Err("Unexpected EOF while parsing".to_string()),
+        }
+    }
+}
+
+/// The same as [Node::parse_list], except that it deals with the runtime and
+/// loads everything into the stack.
+fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), String> {
+    match tokens.peek_next_token().1 {
+        Some(TokenType::RParem) => {
+            // case 1
+            tokens.consume(TokenType::RParem).unwrap();
+            Symbol::Nil.load_to(runtime)
+        }
+        Some(TokenType::Comment) => {
+            tokens.consume(TokenType::Comment).unwrap();
+            parse_list(tokens, runtime)
+        }
+        _ => {
+            tokens.load_to(runtime)?; // car
+
+            // cdr
+            if let Some(TokenType::Dot) = tokens.peek_next_token().1 {
+                // case 3
+                tokens.consume(TokenType::Dot).unwrap();
+                tokens.load_to(runtime)?;
+                tokens.consume(TokenType::RParem)?;
+            } else {
+                // case 2
+                parse_list(tokens, runtime)?
+            };
+
+            runtime.swap();
+            runtime.new_pair();
+            Ok(())
+        }
+    }
+}
+
+impl LoadToRuntime for RuntimeNode {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        let idx = runtime.new_node_with_gc(self);
+        runtime.push(idx);
+        Ok(())
+    }
+}
+
+impl LoadToRuntime for Vec<RuntimeNode> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        Symbol::Nil.load_to(runtime)?;
+        for node in self.into_iter().rev() {
+            node.load_to(runtime)?;
+            runtime.new_pair();
+        }
+        Ok(())
+    }
+}
+
 impl TryFrom<RuntimeNode> for Number {
     type Error = String;
     fn try_from(value: RuntimeNode) -> Result<Self, Self::Error> {
@@ -172,14 +276,14 @@ impl TryFrom<RuntimeNode> for Number {
 macro_rules! rel_op {
     ($runtime:expr, $nargs:expr, $op:tt) => {{
         let operands = $runtime.node_vec_from_stack($nargs);
-        Ok($runtime.new_symbol(eval_rel(operands, |a, b| a $op b)?))
+        eval_rel(operands, |a, b| a $op b)?.load_to($runtime)
     }};
 }
 
 macro_rules! arith_op {
     ($runtime:expr, $nargs:expr, $op:tt) => {{
         let operands = $runtime.node_vec_from_stack($nargs);
-        Ok($runtime.new_number(eval_arith(operands, |a, b| a $op b)?))
+        eval_arith(operands, |a, b| a $op b)?.load_to($runtime)
     }};
 }
 
@@ -207,6 +311,8 @@ pub trait StackMachine<Item> {
     /// Get the top item from the stack. Doesn't pop the item. Panics when
     /// stack underflow.
     fn top(&mut self) -> Item;
+    /// Swap the top two elements in the stack. Panics when stack underflow.
+    fn swap(&mut self);
     /// Pop one item as operator and `usize` items as operands, evaluate the
     /// expression, then push the result into the stack.
     fn apply(&mut self, nargs: usize) -> Result<(), String>;
@@ -222,10 +328,18 @@ impl StackMachine<usize> for Runtime {
     fn top(&mut self) -> usize {
         *self.stack.iter().last().expect("Stack underflow")
     }
+    fn swap(&mut self) {
+        let len = self.stack.len();
+        assert!(len >= 2, "Stack underflow");
+        let (left, right) = self.stack.split_at_mut(len - 1);
+        swap(&mut left[len - 2], &mut right[0]);
+    }
+
     fn apply(&mut self, nargs: usize) -> Result<(), String> {
         let index = self.pop();
         let operator = self.get_symbol(index)?;
-        let ret = match operator {
+        match operator {
+            Symbol::Nil | Symbol::T => Err(format!("{self} can not be the head of a list")),
             Symbol::Add => arith_op!(self, nargs, +),
             Symbol::Mul => arith_op!(self, nargs, *),
             Symbol::Sub => arith_op!(self, nargs, -),
@@ -234,7 +348,7 @@ impl StackMachine<usize> for Runtime {
                 assert_eq!(nargs, 2);
                 let lhs = self.pop_as_node();
                 let rhs = self.pop_as_node();
-                Ok(self.new_symbol(if lhs == rhs { Symbol::T } else { Symbol::Nil }))
+                (if lhs == rhs { Symbol::T } else { Symbol::Nil }).load_to(self)
             }
             Symbol::EqNum => rel_op!(self, nargs, ==),
             Symbol::Gt => rel_op!(self, nargs, >),
@@ -244,17 +358,19 @@ impl StackMachine<usize> for Runtime {
             Symbol::Atom => {
                 assert_eq!(nargs, 1);
                 let val = self.pop_as_node();
-                Ok(self.new_symbol(if let RuntimeNode::Pair(_, _) = val {
+                (if let RuntimeNode::Pair(_, _) = val {
                     Symbol::T
                 } else {
                     Symbol::Nil
-                }))
+                })
+                .load_to(self)
             }
             Symbol::Car => {
                 assert_eq!(nargs, 1);
                 let val = self.pop_as_node();
                 if let RuntimeNode::Pair(car, _) = val {
-                    Ok(car)
+                    self.push(car);
+                    Ok(())
                 } else {
                     Err("Not a pair".to_string())
                 }
@@ -263,36 +379,32 @@ impl StackMachine<usize> for Runtime {
                 assert_eq!(nargs, 1);
                 let val = self.pop_as_node();
                 if let RuntimeNode::Pair(_, cdr) = val {
-                    Ok(cdr)
+                    self.push(cdr);
+                    Ok(())
                 } else {
                     Err("Not a pair".to_string())
                 }
             }
             Symbol::Cons => {
-                assert_eq!(nargs, 2);
-                let car = self.pop();
-                let cdr = self.pop();
-                Ok(self.new_pair(car, cdr))
+                self.new_pair();
+                Ok(())
             }
             Symbol::List => {
                 let operands = self.node_vec_from_stack(nargs);
-                Ok(self.vec_to_node(operands))
+                operands.load_to(self)
             }
-            Symbol::Nil => Ok(self.get_root("nil")),
-            Symbol::T => Ok(self.get_root("t")),
             Symbol::Number => {
                 assert_eq!(nargs, 1);
-                if let RuntimeNode::Number(_) = self.pop_as_node() {
-                    Ok(self.get_root("t"))
+                (if let RuntimeNode::Number(_) = self.pop_as_node() {
+                    Symbol::T
                 } else {
-                    Ok(self.get_root("nil"))
-                }
+                    Symbol::Nil
+                })
+                .load_to(self)
             }
             // Calling `call_closure` here causes deadlock.
             Symbol::User(_) => panic!("Use `call_closure` to apply closure"),
-        }?;
-        self.push(ret);
-        Ok(())
+        }
     }
 }
 
@@ -305,18 +417,6 @@ impl Runtime {
             operands.push(node);
         }
         operands
-    }
-
-    pub fn vec_to_node(&mut self, operands: Vec<RuntimeNode>) -> usize {
-        let lst = self.new_symbol(Symbol::Nil);
-        self.push(lst);
-        for node in operands.iter().rev() {
-            let car = self.new_node_with_gc(node.clone());
-            let cdr = self.pop();
-            let pair = self.new_pair(car, cdr);
-            self.push(pair);
-        }
-        self.pop()
     }
 
     fn pop_as_node(&mut self) -> RuntimeNode {
@@ -387,7 +487,7 @@ impl Runtime {
     }
 
     // GC and maintain the fields of `gc_area`.
-    fn gc(&mut self) {
+    pub fn gc(&mut self) {
         log_debug(&format!("Before GC: {self}"));
         let old_free = self.get_free();
         self.areas.1.clear();
@@ -577,36 +677,14 @@ impl Runtime {
         format!("{}", node.borrow())
     }
 
-    pub fn new_pair(&mut self, mut car: usize, mut cdr: usize) -> usize {
-        // Pin the two pointers so they won't be lost in GC.
-        self.push(car);
-        self.push(cdr);
-
-        self.try_gc();
-
-        // Unpin them.
-        cdr = self.pop();
-        car = self.pop();
-
-        self.new_node(RuntimeNode::Pair(car, cdr))
-    }
-
-    pub fn new_number(&mut self, val: Number) -> usize {
-        self.new_node_with_gc(RuntimeNode::Number(val))
-    }
-
-    pub fn new_symbol(&mut self, val: Symbol) -> usize {
-        self.new_node_with_gc(RuntimeNode::Symbol(val))
-    }
-
-    pub fn new_closure(&mut self, val: Closure) -> usize {
-        self.new_node_with_gc(RuntimeNode::Closure(val))
-    }
-
-    pub fn new_constant(&mut self, expr: &str) -> Result<usize, String> {
-        let mut tokens = Lexer::new(expr);
-        let index = usize::parse(&mut tokens, self)?;
-        Ok(index)
+    /// Create a pair using the two elements from the stack. The first element
+    /// popped is `car` and the second one is `cdr`.
+    pub fn new_pair(&mut self) {
+        self.gc();
+        let car = self.pop();
+        let cdr = self.pop();
+        let pair = self.new_node(RuntimeNode::Pair(car, cdr));
+        self.push(pair);
     }
 
     pub fn new_env(&mut self, name: String, mut outer: usize) -> usize {
@@ -680,77 +758,6 @@ impl Runtime {
             map.insert(key.to_string(), value);
         } else {
             panic!("Not an environment")
-        }
-    }
-}
-
-// Debug functions.
-impl Runtime {
-    pub fn debug_force_gc(&mut self) {
-        self.gc();
-    }
-}
-
-pub trait RuntimeParse {
-    fn parse(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<Self, String>
-    where
-        Self: Sized;
-}
-
-impl RuntimeParse for usize {
-    fn parse(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<Self, String>
-    where
-        Self: Sized,
-    {
-        match tokens.next() {
-            Some(TokenType::LParem) => parse_list(tokens, runtime),
-            Some(TokenType::Quote) => panic!("You don't need to quote in the runtime."),
-            Some(TokenType::Number(i)) => Ok(runtime.new_number(i)),
-            Some(TokenType::Symbol(symbol)) => Ok(runtime.new_symbol(symbol.into())),
-            Some(TokenType::RParem) => Err(format!(
-                "At position {}: Unexpected \")\"",
-                tokens.get_cur_pos()
-            )),
-            Some(TokenType::Dot) => Err(format!(
-                "At position {}: Unexpected \".\"",
-                tokens.get_cur_pos()
-            )),
-            Some(TokenType::Comment) => Self::parse(tokens, runtime),
-            None => Err("Unexpected EOF while parsing".to_string()),
-        }
-    }
-}
-/// The same as `Node::parse_list`, except that it deals with the runtime.
-fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<usize, String> {
-    match tokens.peek_next_token().1 {
-        Some(TokenType::RParem) => {
-            // case 1
-            tokens.consume(TokenType::RParem).unwrap();
-            Ok(runtime.new_symbol(Symbol::Nil))
-        }
-        Some(TokenType::Comment) => {
-            tokens.consume(TokenType::Comment).unwrap();
-            parse_list(tokens, runtime)
-        }
-        _ => {
-            let mut car = usize::parse(tokens, runtime)?;
-            runtime.push(car);
-
-            let cdr = if let Some(TokenType::Dot) = tokens.peek_next_token().1 {
-                // case 2
-                tokens.consume(TokenType::Dot).unwrap();
-                let cdr = usize::parse(tokens, runtime)?;
-                tokens.consume(TokenType::RParem)?;
-                cdr
-            } else {
-                // case 3
-                parse_list(tokens, runtime)?
-            };
-
-            car = runtime.pop();
-
-            let pair = runtime.new_pair(car, cdr);
-            Ok(pair)
         }
     }
 }

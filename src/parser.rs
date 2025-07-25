@@ -101,14 +101,10 @@ impl Parse for Node {
             }
             Some(TokenType::Number(i)) => Ok(Node::Number(i)),
             Some(TokenType::Symbol(symbol)) => {
-                let result = SpecialForm::from_str(symbol.as_str());
-                if let Ok(sym) = result {
-                    Err(ParseError::SyntaxError(format!(
-                        "{sym} can only be the head of a list"
-                    )))
-                } else {
-                    Ok(Node::Symbol(symbol.into()))
-                }
+                // If a special form appears here, it will become a symbol that
+                // has the same name as the special form. This is what the user
+                // wants when creating a metacircular interpreter.
+                Ok(Node::Symbol(symbol.into()))
             }
             Some(TokenType::RParem) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Unexpected \")\"",

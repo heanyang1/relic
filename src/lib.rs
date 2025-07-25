@@ -22,11 +22,11 @@ use crate::{
     eval::{Eval, EvalResult},
     graph::PrintState,
     lexer::{Lexer, Number},
-    logger::log_error,
+    logger::{log_error, unwrap_result},
     node::{Node, NodeEnv},
     parser::Parse,
     preprocess::PreProcess,
-    runtime::{Closure, Runtime, RuntimeNode, StackMachine},
+    runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
     symbol::Symbol,
     util::CVoidFunc,
 };
@@ -130,19 +130,14 @@ pub extern "C" fn rt_start() {
     rt.top_env();
 }
 
-/// Create a new closure and return its index.
+/// Create a new closure and push the result to the stack.
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_new_closure(
-    id: usize,
-    func: CVoidFunc,
-    nargs: usize,
-    variadic: bool,
-) -> usize {
+pub extern "C" fn rt_new_closure(id: usize, func: CVoidFunc, nargs: usize, variadic: bool) {
     let mut rt = RT.lock().unwrap();
     rt.try_gc();
 
     let val = Closure::new(id, func, nargs, variadic, &rt);
-    rt.new_closure(val)
+    val.load_to(&mut rt).unwrap();
 }
 
 fn call_closure(nparams: usize) -> Result<(), String> {
@@ -188,8 +183,7 @@ fn call_closure(nparams: usize) -> Result<(), String> {
             // if the closure is variadic.
             if c.variadic {
                 let values = runtime.node_vec_from_stack(nparams - c.nargs + 1);
-                let idx = runtime.vec_to_node(values);
-                runtime.push(idx);
+                values.load_to(&mut runtime)?;
             }
 
             // Add the last argument.
@@ -295,48 +289,42 @@ pub extern "C" fn rt_apply(nargs: usize) -> usize {
     }
 }
 
-/// Parse an expression from a string and return its index
+/// Parse an expression from a string and push the result to the stack
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_new_constant(expr: *const u8) -> usize {
+pub extern "C" fn rt_new_constant(expr: *const u8) {
     let mut rt = RT.lock().unwrap();
     let c_str = unsafe { std::ffi::CStr::from_ptr(expr as *const i8) };
     if let Ok(expr_str) = c_str.to_str() {
-        match rt.new_constant(expr_str) {
-            Ok(val) => val,
-            Err(e) => {
-                panic!("Error in rt_push_constant: {e}");
-            }
-        }
+        unwrap_result(expr_str.load_to(&mut rt), ());
     } else {
-        panic!("Error in rt_push_constant: invalid string");
+        log_error("Error in rt_push_constant: invalid string");
     }
 }
 
-/// Create a new symbol and return its index
+/// Create a new symbol and push the result to the stack
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_new_symbol(name: *const u8) -> usize {
+pub extern "C" fn rt_new_symbol(name: *const u8) {
     let mut rt = RT.lock().unwrap();
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name_str) = c_str.to_str() {
-        rt.new_symbol(Symbol::from(name_str.to_string()))
+        unwrap_result(Symbol::from(name_str.to_string()).load_to(&mut rt), ());
     } else {
         log_error("Error in rt_new_symbol: invalid string");
-        0
     }
 }
 
-/// Create a new number and return its index
+/// Create a new number and push the result to the stack
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_new_integer(value: i64) -> usize {
+pub extern "C" fn rt_new_integer(value: i64) {
     let mut rt = RT.lock().unwrap();
-    rt.new_number(Number::Int(value))
+    Number::Int(value).load_to(&mut rt).unwrap()
 }
 
-/// Create a new float and return its index
+/// Create a new float and push the result to the stack
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_new_float(value: f64) -> usize {
+pub extern "C" fn rt_new_float(value: f64) {
     let mut rt = RT.lock().unwrap();
-    rt.new_number(Number::Float(value))
+    Number::Float(value).load_to(&mut rt).unwrap()
 }
 
 /// Create a new environment

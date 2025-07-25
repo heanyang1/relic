@@ -70,7 +70,7 @@ macro_rules! set_family {
         $codegen.append_code(&format!(
             r#"
 rt_{}({}, rt_pop());
-rt_push(rt_new_symbol("nil"));"#,
+rt_new_symbol("nil");"#,
             $func_name,
             $target(name)
         ));
@@ -125,7 +125,7 @@ impl Compile for Symbol {
                 format!("rt_push(rt_get(\"{name}\"));")
             }
             _ => {
-                format!("rt_push(rt_new_symbol(\"{self}\"));")
+                format!("rt_new_symbol(\"{self}\");")
             }
         };
         codegen.append_code(&code);
@@ -137,10 +137,10 @@ impl Compile for Node {
     fn compile(&self, codegen: &mut CodeGen) -> Result<(), String> {
         match self {
             Node::Number(Number::Float(val)) => {
-                Ok(codegen.append_code(&format!("rt_push(rt_new_float({val}));")))
+                Ok(codegen.append_code(&format!("rt_new_float({val});")))
             }
             Node::Number(Number::Int(val)) => {
-                Ok(codegen.append_code(&format!("rt_push(rt_new_integer({val}));")))
+                Ok(codegen.append_code(&format!("rt_new_integer({val});")))
             }
             Node::Pair(car, cdr) => match &*car.borrow() {
                 Node::Number(num) => Err(format!("{num} can not be the head of a list")),
@@ -181,7 +181,7 @@ impl Compile for Node {
 
                         // Write the code that creates the closure.
                         codegen.append_code(&format!(
-                            "rt_push(rt_new_closure({lambda_id}, func_{lambda_id}, {}, {}));",
+                            "rt_new_closure({lambda_id}, func_{lambda_id}, {}, {});",
                             pvec.len(),
                             !pattern.is_proper_list()
                         ));
@@ -195,7 +195,7 @@ impl Compile for Node {
                             r#"
 printf("%s",rt_display_node_idx(rt_pop()));
 fflush(NULL);
-rt_push(rt_new_symbol("nil"));"#,
+rt_new_symbol("nil");"#,
                         );
                         Ok(())
                     }
@@ -204,13 +204,13 @@ rt_push(rt_new_symbol("nil"));"#,
                         codegen.append_code(
                             r#"
 printf("\n");
-rt_push(rt_new_symbol("nil"));"#,
+rt_new_symbol("nil");"#,
                         );
                         Ok(())
                     }
                     SpecialForm::BreakPoint | SpecialForm::Graphviz => {
                         let _ = get_n_params(cdr.clone(), 0)?;
-                        codegen.append_code("rt_push(rt_new_symbol(\"nil\"));");
+                        codegen.append_code("rt_new_symbol(\"nil\");");
                         Ok(())
                     }
                     SpecialForm::Define => {
@@ -220,7 +220,7 @@ rt_push(rt_new_symbol("nil"));"#,
                             codegen.append_code(&format!(
                                 r#"
 rt_define("{}", rt_pop());
-rt_push(rt_new_symbol("nil"));"#,
+rt_new_symbol("nil");"#,
                                 name
                             ));
                             Ok(())
@@ -263,7 +263,7 @@ rt_push(rt_new_symbol("nil"));"#,
                     SpecialForm::Quote => {
                         let params = get_n_params(cdr.clone(), 1)?;
                         codegen.append_code(&format!(
-                            "rt_push(rt_new_constant(\"{}\"));",
+                            "rt_new_constant(\"{}\");",
                             params[0].borrow()
                         ));
                         Ok(())
