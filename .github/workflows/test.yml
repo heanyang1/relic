@@ -5,12 +5,17 @@ jobs:
   test:
     name: test
     runs-on: ubuntu-latest
-    container:
-      image: xd009642/tarpaulin:develop-nightly
-      options: --security-opt seccomp=unconfined
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          components: rust-src, rustfmt, clippy
 
       - name: Build
         run: cargo build --verbose

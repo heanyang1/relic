@@ -1,4 +1,4 @@
-CC = clang
+CC = gcc
 CFLAGS = -g -Wall -O1 -I.
 LLVM_CFLAGS = -Wall -O1 -emit-llvm
 LIB_DIR = ../target/debug
