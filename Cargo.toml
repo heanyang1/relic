@@ -11,9 +11,11 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
 colored = "3.0.0"
-libloading = "0.8.8"
-stacker = "0.1.21"
 wasm-bindgen = "0.2.100"
+stacker = "0.1.21"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libloading = "0.8.8"
 
 [dev-dependencies]
 serial_test = "3.0"

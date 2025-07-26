@@ -30,6 +30,7 @@ use crate::{
     symbol::Symbol,
     util::CVoidFunc,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use libloading::{self, Library};
 use wasm_bindgen::prelude::*;
 
@@ -530,6 +531,7 @@ pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
 
 /// The function called by [rt_import]. It is designed not to be a method of
 /// [Runtime] to avoid deadlock when loading the package.
+#[cfg(not(target_arch = "wasm32"))]
 fn import(package: &str) -> Result<(), String> {
     {
         let runtime = RT.lock().unwrap();
@@ -562,6 +564,11 @@ fn import(package: &str) -> Result<(), String> {
     let mut runtime = RT.lock().unwrap();
     runtime.add_package(package.to_string(), lib);
     Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn import(_package: &str) -> Result<(), String> {
+    Err("Package imports are not supported in WebAssembly".to_string())
 }
 
 /// Import a package.

@@ -13,6 +13,7 @@ use crate::{
     util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 use libloading::Library;
 
 /// Closures.
@@ -141,6 +142,7 @@ pub struct Runtime {
     ///
     /// This field is not used, but we need to keep it so that we can use the
     /// C function pointers inside the shared library.
+    #[cfg(not(target_arch = "wasm32"))]
     packages: HashMap<String, Library>,
 }
 
@@ -415,6 +417,7 @@ impl StackMachine<usize> for Runtime {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Runtime {
     pub fn add_package(&mut self, name: String, package: Library) {
         assert!(self.packages.insert(name, package).is_none());
@@ -422,6 +425,17 @@ impl Runtime {
 
     pub fn has_package(&self, name: &str) -> bool {
         self.packages.contains_key(name)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Runtime {
+    pub fn add_package(&mut self, _name: String, _package: ()) {
+        // No-op for WebAssembly
+    }
+
+    pub fn has_package(&self, _name: &str) -> bool {
+        false
     }
 }
 
@@ -620,6 +634,7 @@ impl Runtime {
 
 // Create C bindings for these functions.
 impl Runtime {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(size: usize) -> Runtime {
         Runtime {
             stack: vec![],
@@ -627,6 +642,16 @@ impl Runtime {
             size,
             roots: HashMap::new(),
             packages: HashMap::new(),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new(size: usize) -> Runtime {
+        Runtime {
+            stack: vec![],
+            areas: (Vec::with_capacity(size), Vec::with_capacity(size)),
+            size,
+            roots: HashMap::new(),
         }
     }
 
@@ -723,10 +748,19 @@ impl Runtime {
 // These functions are supposed to be used by other objects in the crate.
 // DO NOT create C bindings for them although they are public.
 impl Runtime {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn clear(&mut self) {
         self.roots.clear();
         self.stack.clear();
         self.packages.clear();
+        self.areas.0.clear();
+        self.areas.1.clear();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn clear(&mut self) {
+        self.roots.clear();
+        self.stack.clear();
         self.areas.0.clear();
         self.areas.1.clear();
     }

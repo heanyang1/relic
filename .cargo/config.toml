@@ -1,4 +1,4 @@
-[build]
 # Makes symbols from executable available to dynamically loaded libraries
-# such as Relic packages.
+# such as Relic packages. Only needed for non-WASM targets.
+[target.'cfg(not(target_arch = "wasm32"))']
 rustflags = ["-C", "link-arg=-Wl,--export-dynamic"]
