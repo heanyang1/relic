@@ -9,17 +9,7 @@ use std::{
 };
 
 use relic::{
-    compile::{CodeGen, Compile},
-    env::Env,
-    eval::{ConsoleEval, Eval, EvalResult},
-    graph::PrintState,
-    lexer::Lexer,
-    logger::{log_error, unwrap_result},
-    nil,
-    node::{Node, NodeEnv},
-    parser::{Parse, ParseError},
-    preprocess::PreProcess,
-    symbol::Symbol,
+    compile::{CodeGen, Compile}, env::Env, eval::{ConsoleEval, Eval, EvalResult}, graph::PrintState, lexer::Lexer, logger::{log_error, unwrap_result}, nil, node::{Node, NodeEnv}, parser::{Parse, ParseError}, preprocess::PreProcess, rt_import, symbol::Symbol
 };
 
 use clap::{Parser, ValueEnum};
