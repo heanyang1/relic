@@ -1,5 +1,6 @@
 //! The parser module.
 
+use std::fmt::Display;
 use std::str::FromStr;
 
 use crate::lexer::{Lexer, TokenType};
@@ -13,12 +14,16 @@ pub enum ParseError {
     EOF,
 }
 
-impl ToString for ParseError {
-    fn to_string(&self) -> String {
-        match self {
-            ParseError::SyntaxError(s) => s.clone(),
-            ParseError::EOF => "Unexpected EOF".to_string(),
-        }
+impl Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ParseError::SyntaxError(s) => s,
+                ParseError::EOF => "Unexpected EOF",
+            }
+        )
     }
 }
 
@@ -44,13 +49,13 @@ impl Node {
                 // case 1
                 tokens
                     .consume(TokenType::RParem)
-                    .map_err(|e| ParseError::SyntaxError(e))?;
+                    .map_err(ParseError::SyntaxError)?;
                 Ok(nil!())
             }
             Some(TokenType::Comment) => {
                 tokens
                     .consume(TokenType::Comment)
-                    .map_err(|e| ParseError::SyntaxError(e))?;
+                    .map_err(ParseError::SyntaxError)?;
                 Self::parse_list(tokens)
             }
             _ => {
@@ -59,11 +64,11 @@ impl Node {
                     // case 2
                     tokens
                         .consume(TokenType::Dot)
-                        .map_err(|e| ParseError::SyntaxError(e))?;
+                        .map_err(ParseError::SyntaxError)?;
                     let cdr = Node::parse(tokens)?;
                     tokens
                         .consume(TokenType::RParem)
-                        .map_err(|e| ParseError::SyntaxError(e))?;
+                        .map_err(ParseError::SyntaxError)?;
                     cdr
                 } else {
                     // case 3

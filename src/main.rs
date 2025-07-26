@@ -9,7 +9,17 @@ use std::{
 };
 
 use relic::{
-    compile::{CodeGen, Compile}, env::Env, eval::{ConsoleEval, Eval, EvalResult}, graph::PrintState, lexer::Lexer, logger::{log_error, unwrap_result}, nil, node::{Node, NodeEnv}, parser::{Parse, ParseError}, preprocess::PreProcess, rt_import, symbol::Symbol
+    compile::{CodeGen, Compile},
+    env::Env,
+    eval::{ConsoleEval, Eval, EvalResult},
+    graph::PrintState,
+    lexer::Lexer,
+    logger::{log_error, unwrap_result},
+    nil,
+    node::{Node, NodeEnv},
+    parser::{Parse, ParseError},
+    preprocess::PreProcess,
+    symbol::Symbol,
 };
 
 use clap::{Parser, ValueEnum};
@@ -34,6 +44,12 @@ pub struct DbgResult {
     node: Rc<RefCell<Node>>,
     /// Whether the step evaluation is on.
     step_is_on: bool,
+}
+
+impl Default for DbgResult {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DbgResult {
@@ -182,7 +198,7 @@ fn main() {
         Mode::Repl => {
             let mut result = ConsoleEval::new();
 
-            input_node.map(|node| {
+            if let Some(node) = input_node {
                 result = unwrap_result(node.eval(env.clone(), result.clone()), ConsoleEval::new());
                 if *result.node.borrow() != nil!() {
                     println!("{}", result.node.borrow());
@@ -196,7 +212,7 @@ fn main() {
                 if let Some(output) = &result.graphviz_output {
                     println!("{output}");
                 }
-            });
+            }
 
             // start REPL
             let mut input = String::new();
@@ -258,9 +274,8 @@ fn main() {
                 }
                 None => {
                     eprintln!("No files to compile");
-                    return;
                 }
-            };
+            }
         }
         Mode::Debug => {
             let mut result = DbgResult::new();

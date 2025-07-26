@@ -71,7 +71,7 @@ impl Node {
                 // do nothing
             }
             Node::Pair(car, cdr) => {
-                car.borrow_mut().replace(&src, dst);
+                car.borrow_mut().replace(src, dst);
                 cdr.borrow_mut().replace(src, dst);
             }
         }

@@ -5,15 +5,11 @@ use relic::{
     node::Node,
     parser::Parse,
     preprocess::PreProcess,
-    rt_display_node_idx, rt_get, rt_import, rt_start,
+    rt_get, rt_import, rt_start,
     runtime::{LoadToRuntime, Runtime, RuntimeNode, StackMachine},
     symbol::Symbol,
 };
-use std::{
-    collections::HashMap,
-    ffi::{CStr, CString},
-    process::{Command, ExitStatus},
-};
+use std::{collections::HashMap, ffi::CString, process::Command};
 
 fn with_different_gc_size<T>(lb: usize, ub: usize, test: T)
 where
@@ -122,8 +118,8 @@ fn compile_test() {
     let c_code = codegen.to_string();
     std::fs::write(format!("/tmp/relic_{lib_name}.c"), c_code).unwrap();
 
-    let status = Command::new("clang")
-        .args(&[
+    let status = Command::new("gcc")
+        .args([
             "-Ic_runtime",
             "-shared",
             "-fPIC",

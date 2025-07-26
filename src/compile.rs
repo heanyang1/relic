@@ -4,7 +4,6 @@ use std::{
     collections::HashMap,
     fmt::Display,
     sync::{LazyLock, Mutex},
-    usize,
 };
 
 use crate::{
@@ -117,7 +116,7 @@ impl Display for CodeGen {
         };
         let main_body = &self.body;
 
-        for (name, _) in &self.closures {
+        for name in self.closures.keys() {
             writeln!(f, "static void func_{name}();")?;
         }
         writeln!(
@@ -171,10 +170,12 @@ impl Compile for Node {
     fn compile(&self, codegen: &mut CodeGen) -> Result<(), String> {
         match self {
             Node::Number(Number::Float(val)) => {
-                Ok(codegen.append_code(&format!("rt_new_float({val});")))
+                codegen.append_code(&format!("rt_new_float({val});"));
+                Ok(())
             }
             Node::Number(Number::Int(val)) => {
-                Ok(codegen.append_code(&format!("rt_new_integer({val});")))
+                codegen.append_code(&format!("rt_new_integer({val});"));
+                Ok(())
             }
             Node::Pair(car, cdr) => match &*car.borrow() {
                 Node::Number(num) => Err(format!("{num} can not be the head of a list")),
@@ -251,9 +252,8 @@ rt_new_symbol("nil");"#,
                             params[1].borrow().compile(codegen)?;
                             codegen.append_code(&format!(
                                 r#"
-rt_define("{}", rt_pop());
-rt_new_symbol("nil");"#,
-                                name
+rt_define("{name}", rt_pop());
+rt_new_symbol("nil");"#
                             ));
                             Ok(())
                         } else {
@@ -312,8 +312,10 @@ rt_new_symbol("nil");"#,
                     }
                     SpecialForm::Import => {
                         let params = get_n_params(cdr.clone(), 1)?;
-                        codegen
-                            .append_code(&format!("rt_import(\"{}\");rt_new_symbol(\"nil\");", params[0].borrow()));
+                        codegen.append_code(&format!(
+                            "rt_import(\"{}\");rt_new_symbol(\"nil\");",
+                            params[0].borrow()
+                        ));
                         Ok(())
                     }
                     _ => unreachable!(),

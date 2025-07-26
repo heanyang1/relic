@@ -303,13 +303,13 @@ macro_rules! arith_op {
 /// Here are some reasons to use stack machines (none of which will happen in
 /// SICP's register machine, which is built on the top of a Scheme system):
 /// - The problem of parsing assignment expressions is avoided.
-/// `(assign a ((op +) (const 2) (reg x)))` can be done by pushing three items
-/// and call `apply`, or by parsing the expression using a customized parser,
-/// then walk down the AST. GC may be triggered during the process and the node
-/// of `(const 2)` may be lost if you are not careful.
+///   `(assign a ((op +) (const 2) (reg x)))` can be done by pushing three items
+///   and call `apply`, or by parsing the expression using a customized parser,
+///   then walk down the AST. GC may be triggered during the process and the node
+///   of `(const 2)` may be lost if you are not careful.
 /// - In our implementation, stack operations are not slower than register
-/// operation. The registers are implemented by a hash map and the stack is a
-/// vector, both of them takes (amortized) O(1) time to insert and delete.
+///   operation. The registers are implemented by a hash map and the stack is a
+///   vector, both of them takes (amortized) O(1) time to insert and delete.
 pub trait StackMachine<Item> {
     /// Push an item to the stack.
     fn push(&mut self, item: Item);
