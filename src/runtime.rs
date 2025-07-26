@@ -723,6 +723,14 @@ impl Runtime {
 // These functions are supposed to be used by other objects in the crate.
 // DO NOT create C bindings for them although they are public.
 impl Runtime {
+    pub fn clear(&mut self) {
+        self.roots.clear();
+        self.stack.clear();
+        self.packages.clear();
+        self.areas.0.clear();
+        self.areas.1.clear();
+    }
+    
     pub fn get_node(&self, active: bool, index: usize) -> &RuntimeNode {
         self.get_area(active).get(index).unwrap()
     }

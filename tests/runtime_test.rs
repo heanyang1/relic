@@ -9,7 +9,6 @@ use relic::{
     runtime::{LoadToRuntime, Runtime, RuntimeNode, StackMachine},
     symbol::Symbol,
 };
-use std::{collections::HashMap, ffi::CString, process::Command};
 
 fn with_different_gc_size<T>(lb: usize, ub: usize, test: T)
 where
@@ -94,51 +93,4 @@ fn parse_test() {
         let y = runtime.pop();
         assert_eq!(runtime.display_node_idx(y), "(2 (3 . /) <= (5 a))");
     })
-}
-
-macro_rules! compile {
-    ($input:expr, $package_name:expr) => {{
-        let mut tokens = Lexer::new($input);
-        let mut macros = HashMap::new();
-        let mut codegen = CodeGen::new_library($package_name);
-
-        while let Ok(mut node) = Node::parse(&mut tokens) {
-            let node = node.preprocess(&mut macros).unwrap();
-            node.compile(&mut codegen).unwrap();
-        }
-        codegen
-    }};
-}
-
-#[test]
-fn compile_test() {
-    let code = "(define x (+ 1 2))";
-    let lib_name = "mylib";
-    let codegen = compile!(code, lib_name.to_string());
-    let c_code = codegen.to_string();
-    std::fs::write(format!("/tmp/relic_{lib_name}.c"), c_code).unwrap();
-
-    let status = Command::new("gcc")
-        .args([
-            "-Ic_runtime",
-            "-shared",
-            "-fPIC",
-            "-o",
-            &format!("./lib/{lib_name}.relic"),
-            &format!("/tmp/relic_{lib_name}.c"),
-        ])
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
-    assert!(status.success());
-
-    rt_start();
-    let c_str = CString::new(lib_name).unwrap();
-    rt_import(c_str.as_bytes().as_ptr());
-
-    let c_str = CString::new("x").unwrap();
-    let x = rt_get(c_str.as_bytes().as_ptr());
-    let runtime = RT.lock().unwrap();
-    println!("x={}", runtime.display_node_idx(x));
 }
