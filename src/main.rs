@@ -3,6 +3,7 @@ use std::{
     collections::HashMap,
     fs::{File, read_to_string},
     io::{self, Write},
+    path::PathBuf,
     rc::Rc,
     str::FromStr,
 };
@@ -157,11 +158,23 @@ struct Cli {
     #[arg(value_enum)]
     mode: Mode,
 
-    /// Input file.
-    input_path: Option<String>,
+    /// Input file path.
+    #[arg(short, long, value_name = "FILE")]
+    input_path: Option<PathBuf>,
 
-    /// Output file.
-    output_path: Option<String>,
+    /// Output file path.
+    #[arg(short, long, value_name = "FILE")]
+    output_path: Option<PathBuf>,
+
+    /// The name of the package.
+    ///
+    /// You can create a package from your code by compiling it to a shared
+    /// library, move it to `lib` folder and call `(import [package name])`
+    /// to use it in lisp code. See `lib/README.md` for details.
+    ///
+    /// The package name must be a valid variable name.
+    #[arg(short, long, value_name = "NAME")]
+    package_name: Option<String>,
 }
 
 fn main() {
@@ -234,7 +247,10 @@ fn main() {
             }
         }
         Mode::Compile => {
-            let mut codegen = CodeGen::new(true);
+            let mut codegen = match cli.package_name {
+                Some(name) => CodeGen::new_library(name),
+                None => CodeGen::new_main(),
+            };
             match input_node {
                 Some(node) => {
                     unwrap_result(node.compile(&mut codegen), ());
@@ -251,7 +267,7 @@ fn main() {
                     }
                 }
                 None => {
-                    eprintln!("No files to debug");
+                    eprintln!("No files to compile");
                     return;
                 }
             };

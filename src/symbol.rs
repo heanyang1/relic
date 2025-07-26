@@ -117,6 +117,11 @@ pub enum SpecialForm {
     /// `(breakpoint)` creates a breakpoint that stops the debugger. It is a
     /// noop in non-debug environments.
     BreakPoint,
+    /// Special form `import`.
+    ///
+    /// `(import p)` loads the symbol defined at the top level of the
+    /// package `p` into current environment and returns `nil`.
+    Import,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -232,6 +237,7 @@ impl FromStr for SpecialForm {
             "newline" => Ok(SpecialForm::NewLine),
             "graphviz" => Ok(SpecialForm::Graphviz),
             "breakpoint" => Ok(SpecialForm::BreakPoint),
+            "import" => Ok(SpecialForm::Import),
             _ => Err("Not a special form".to_string()),
         }
     }
@@ -284,6 +290,7 @@ impl Display for SpecialForm {
             SpecialForm::NewLine => write!(f, "newline"),
             SpecialForm::Graphviz => write!(f, "graphviz"),
             SpecialForm::BreakPoint => write!(f, "breakpoint"),
+            SpecialForm::Import => write!(f, "import"),
         }
     }
 }

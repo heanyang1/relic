@@ -6,6 +6,7 @@
 
 // Runtime functions.
 extern void rt_start();
+extern void rt_import(const char *name);
 extern void rt_new_symbol(const char *name);
 extern void rt_new_integer(long long value);
 extern void rt_new_float(double value);

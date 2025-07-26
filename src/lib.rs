@@ -30,6 +30,7 @@ use crate::{
     symbol::Symbol,
     util::CVoidFunc,
 };
+use libloading::{self, Library};
 use wasm_bindgen::prelude::*;
 
 #[derive(Clone)]
@@ -140,6 +141,8 @@ pub extern "C" fn rt_new_closure(id: usize, func: CVoidFunc, nargs: usize, varia
     val.load_to(&mut rt).unwrap();
 }
 
+/// The function called by [rt_call_closure]. It is designed not to be a method
+/// of [Runtime] to avoid deadlock when calling the closure.
 fn call_closure(nparams: usize) -> Result<(), String> {
     let c = {
         let mut runtime = RT.lock().unwrap();
@@ -148,7 +151,7 @@ fn call_closure(nparams: usize) -> Result<(), String> {
             Ok(c)
         } else {
             Err(format!(
-                "{} is not a number",
+                "{} is not a closure",
                 runtime.display_node_idx(index)
             ))
         }?
@@ -523,4 +526,51 @@ pub extern "C" fn rt_get_root(name: *const u8) -> usize {
 pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
     let rt = RT.lock().unwrap();
     if rt.get_symbol(index).is_ok() { 1 } else { 0 }
+}
+
+/// The function called by [rt_import]. It is designed not to be a method of
+/// [Runtime] to avoid deadlock when loading the package.
+fn import(package: &str) -> Result<(), String> {
+    {
+        let runtime = RT.lock().unwrap();
+        if runtime.has_package(package) {
+            return Ok(());
+        }
+    } // unlock RT
+
+    // Find the library and call the function with name `package`, then the
+    // function will load everything into current environment.
+    let lib = unsafe {
+        let lib = Library::new(format!("./lib/{package}.relic")).map_err(|e| e.to_string())?;
+
+        let main: libloading::Symbol<unsafe extern "C" fn() -> i32> = lib
+            .get(&package.to_string().into_bytes())
+            .map_err(|e| e.to_string())?;
+
+        let return_val = main();
+
+        if return_val == 0 {
+            Ok(lib)
+        } else {
+            Err(format!(
+                "Package {package}'s main function returns {return_val}"
+            ))
+        }
+    }?;
+
+    // Add the library to the runtime so it won't be unloaded.
+    let mut runtime = RT.lock().unwrap();
+    runtime.add_package(package.to_string(), lib);
+    Ok(())
+}
+
+/// Import a package.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_import(name: *const u8) {
+    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
+    if let Ok(name_str) = c_str.to_str() {
+        unwrap_result(import(name_str), ());
+    } else {
+        log_error("Error in rt_import: invalid string");
+    }
 }

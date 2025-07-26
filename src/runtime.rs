@@ -13,6 +13,8 @@ use crate::{
     util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
 };
 
+use libloading::Library;
+
 /// Closures.
 ///
 /// This is probably the easiest way to represent lambdas using C function.
@@ -120,7 +122,7 @@ pub enum RuntimeNode {
 /// To simplify bindings and avoid ownership issues, users can only get the
 /// index of the runtime node in the GC area. There are functions that retrives
 /// the content of the node through index.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Runtime {
     /// The stack. Its content is the index to the element in the GC area.
     ///
@@ -135,6 +137,11 @@ pub struct Runtime {
     ///
     /// The key is its name and the value is its index.
     roots: HashMap<String, usize>,
+    /// Opened packages.
+    ///
+    /// This field is not used, but we need to keep it so that we can use the
+    /// C function pointers inside the shared library.
+    packages: HashMap<String, Library>,
 }
 
 impl Display for Runtime {
@@ -409,6 +416,16 @@ impl StackMachine<usize> for Runtime {
 }
 
 impl Runtime {
+    pub fn add_package(&mut self, name: String, package: Library) {
+        assert!(self.packages.insert(name, package).is_none());
+    }
+
+    pub fn has_package(&self, name: &str) -> bool {
+        self.packages.contains_key(name)
+    }
+}
+
+impl Runtime {
     pub fn node_vec_from_stack(&mut self, nargs: usize) -> Vec<RuntimeNode> {
         let mut operands = vec![];
         for _ in 0..nargs {
@@ -609,6 +626,7 @@ impl Runtime {
             areas: (Vec::with_capacity(size), Vec::with_capacity(size)),
             size,
             roots: HashMap::new(),
+            packages: HashMap::new(),
         }
     }
 
@@ -714,7 +732,9 @@ impl Runtime {
     }
 
     pub fn top_env(&mut self) -> usize {
-        let top_name = "__cur_env";
+        let cur_name = "__cur_env";
+        let top_name = "__top_env";
+        assert!(!self.roots.contains_key(cur_name));
         assert!(!self.roots.contains_key(top_name));
         let node = self.new_node_with_gc(RuntimeNode::Environment(
             "top".to_string(),
@@ -722,6 +742,7 @@ impl Runtime {
             None,
         ));
         self.roots.insert(top_name.to_string(), node);
+        self.roots.insert(cur_name.to_string(), node);
         node
     }
 

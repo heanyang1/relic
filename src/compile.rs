@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     fmt::Display,
     sync::{LazyLock, Mutex},
+    usize,
 };
 
 use crate::{
@@ -22,6 +23,18 @@ fn inc() -> usize {
     *counter
 }
 
+/// Type of code generators.
+pub enum CodeGenType {
+    /// The generator is generating a closure that will not be used by other
+    /// programs.
+    Internal(usize),
+    /// The generator is generating `main` function.
+    Main,
+    /// The generator is generating the top-level function that can be used.
+    /// by other programs.
+    Library(String),
+}
+
 /// Code generator.
 ///
 /// A code generator is responsible for writing one function's code.
@@ -32,10 +45,8 @@ fn inc() -> usize {
 /// After compilation, the generator for the main function will have the same
 /// layout as the compiled C source code.
 pub struct CodeGen {
-    /// The function's ID. `None` if the generator is for the main function.
-    ///
-    /// All function except main will have name `func_{id}`.
-    id: Option<usize>,
+    /// The code generator's type.
+    ty: CodeGenType,
     /// Closures. Values are function body without boilerplate.
     closures: HashMap<usize, String>,
     /// Body of the function the generator is writing.
@@ -43,20 +54,39 @@ pub struct CodeGen {
 }
 
 impl CodeGen {
-    pub fn new(is_main: bool) -> Self {
+    pub fn new_main() -> Self {
         CodeGen {
-            id: if is_main { None } else { Some(inc()) },
+            ty: CodeGenType::Main,
             closures: HashMap::new(),
             body: String::new(),
         }
     }
+    fn new_internal(id: usize) -> Self {
+        CodeGen {
+            ty: CodeGenType::Internal(id),
+            closures: HashMap::new(),
+            body: String::new(),
+        }
+    }
+    pub fn new_library(name: String) -> Self {
+        CodeGen {
+            ty: CodeGenType::Library(name),
+            closures: HashMap::new(),
+            body: String::new(),
+        }
+    }
+
     fn append_code(&mut self, code: &str) {
         self.body += code;
     }
     /// Merge the generator of a function created by this generator's function.
     fn merge(&mut self, func: Self) {
-        self.closures.extend(func.closures);
-        assert!(self.closures.insert(func.id.unwrap(), func.body).is_none());
+        if let CodeGenType::Internal(id) = func.ty {
+            self.closures.extend(func.closures);
+            assert!(self.closures.insert(id, func.body).is_none());
+        } else {
+            panic!("Merging top-level generator: {func}");
+        }
     }
 }
 
@@ -80,27 +110,31 @@ rt_new_symbol("nil");"#,
 
 impl Display for CodeGen {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        assert!(self.id.is_none()); // You can only write `main` function.
+        let (func_name, start_code) = match &self.ty {
+            CodeGenType::Internal(id) => panic!("Writing internal closure {id}"),
+            CodeGenType::Main => ("main".to_string(), "rt_start();".to_string()),
+            CodeGenType::Library(name) => (name.to_string(), String::new()),
+        };
         let main_body = &self.body;
 
         for (name, _) in &self.closures {
-            writeln!(f, "void func_{name}();")?;
+            writeln!(f, "static void func_{name}();")?;
         }
         writeln!(
             f,
             r#"
 #include"runtime.h"
-int main() {{
-    rt_start();
+int {func_name}() {{
+    {start_code}
     {main_body}
     return 0;
-}}"#
+}}"#,
         )?;
         for (name, body) in &self.closures {
             writeln!(
                 f,
                 r#"
-void func_{name}() {{
+static void func_{name}() {{
     {body}
 }}"#
             )?;
@@ -156,10 +190,7 @@ impl Compile for Node {
                         let mut body =
                             Node::Pair(Node::SpecialForm(SpecialForm::Begin).into(), body);
 
-                        // Initialize code generator for the closure here so
-                        // that we can get the ID of the closure.
-                        let mut lambda_gen = CodeGen::new(false);
-                        let lambda_id = lambda_gen.id.unwrap();
+                        let lambda_id = inc();
 
                         // Replace operands with its index.
                         let pattern = Pattern::try_from(pattern.clone())?;
@@ -173,6 +204,7 @@ impl Compile for Node {
                         }
 
                         // Generate function body.
+                        let mut lambda_gen = CodeGen::new_internal(lambda_id);
                         body.compile(&mut lambda_gen)?;
                         codegen.merge(lambda_gen);
 
@@ -262,10 +294,8 @@ rt_new_symbol("nil");"#,
                     }
                     SpecialForm::Quote => {
                         let params = get_n_params(cdr.clone(), 1)?;
-                        codegen.append_code(&format!(
-                            "rt_new_constant(\"{}\");",
-                            params[0].borrow()
-                        ));
+                        codegen
+                            .append_code(&format!("rt_new_constant(\"{}\");", params[0].borrow()));
                         Ok(())
                     }
                     SpecialForm::Begin => {
@@ -278,6 +308,12 @@ rt_new_symbol("nil");"#,
                             }
                             operands.borrow().compile(codegen)?;
                         }
+                        Ok(())
+                    }
+                    SpecialForm::Import => {
+                        let params = get_n_params(cdr.clone(), 1)?;
+                        codegen
+                            .append_code(&format!("rt_import(\"{}\");rt_new_symbol(\"nil\");", params[0].borrow()));
                         Ok(())
                     }
                     _ => unreachable!(),

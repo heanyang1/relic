@@ -9,16 +9,17 @@ use relic::{
 };
 
 macro_rules! compile {
-    ($input:expr, $codegen:expr, $filename:expr, $output:expr) => {{
+    ($input:expr, $filename:expr, $output:expr) => {{
         let input = $input;
         let mut tokens = Lexer::new(input);
         let mut macros = HashMap::new();
+        let mut codegen = CodeGen::new_main();
 
         println!("{input}");
         while let Ok(mut node) = Node::parse(&mut tokens) {
             let node = node.preprocess(&mut macros).unwrap();
             println!("{node}");
-            node.compile($codegen).unwrap();
+            node.compile(&mut codegen).unwrap();
         }
         // Create c_runtime/tests directory if it doesn't exist
         let test_dir = Path::new("c_runtime/tests");
@@ -28,7 +29,7 @@ macro_rules! compile {
 
         std::fs::write(
             test_dir.join(format!("{}.c", $filename)),
-            $codegen.to_string(),
+            codegen.to_string(),
         )
         .unwrap();
         std::fs::write(
@@ -41,8 +42,6 @@ macro_rules! compile {
 
 #[test]
 fn test_cycle() {
-    let mut code = CodeGen::new(true);
-    // Simplified cycle test to avoid infinite recursion in C runtime
     compile!(
         r#"
 (define (last-pair x)
@@ -61,7 +60,6 @@ fn test_cycle() {
     x)
 (define z2 (make-cycle2 (list 'a 'b 'c)))
 (display z2)"#,
-        &mut code,
         "cycle",
         "(a b #0#)\n(a b c . #0#)"
     );
@@ -69,14 +67,11 @@ fn test_cycle() {
 
 #[test]
 fn test_delay() {
-    let mut code = CodeGen::new(true);
-    // Simplified delay/force test using direct lambda application
     compile!(
         r#"
 (define-syntax-rule (delay exp) (lambda () exp))
 (define (force delayed-object) (delayed-object))
 (display (force (delay 1)))"#,
-        &mut code,
         "delay",
         "1"
     );
@@ -84,13 +79,11 @@ fn test_delay() {
 
 #[test]
 fn test_set_car() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define x '(1 2 3))
 (set-car! x 4)
 (display x)"#,
-        &mut code,
         "set_car",
         "(4 2 3)"
     );
@@ -98,13 +91,11 @@ fn test_set_car() {
 
 #[test]
 fn test_set_cdr() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define x '(1 2 3))
 (set-cdr! x '(4 5 6))
 (display x)"#,
-        &mut code,
         "set_cdr",
         "(1 4 5 6)"
     );
@@ -112,7 +103,6 @@ fn test_set_cdr() {
 
 #[test]
 fn test_fact() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define fact
@@ -121,7 +111,6 @@ fn test_fact() {
           ('t (fact (- n 1) (* n acc))))))
 
 (display (fact 5 1))"#,
-        &mut code,
         "fact",
         "120"
     );
@@ -129,8 +118,6 @@ fn test_fact() {
 
 #[test]
 fn test_or() {
-    let mut code = CodeGen::new(true);
-    // Simplified or test with explicit display of each case
     compile!(
         r#"
 (display (or))
@@ -138,7 +125,6 @@ fn test_or() {
 (display (or '() 2 3))
 (newline)
 (display (or 1 2 3))"#,
-        &mut code,
         "or",
         "nil\n2\n1"
     );
@@ -146,7 +132,6 @@ fn test_or() {
 
 #[test]
 fn test_and() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (display (and))
@@ -154,7 +139,6 @@ fn test_and() {
 (display (and '() 2 3))
 (newline)
 (display (and 1 2 3))"#,
-        &mut code,
         "and",
         "t\nnil\n3"
     );
@@ -162,7 +146,6 @@ fn test_and() {
 
 #[test]
 fn test_cond() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (display (cond ((< 1 2) 1) ((> 1 2) 2)))
@@ -172,7 +155,6 @@ fn test_cond() {
 (display (cond ((> 1 2) 1)))
 (newline)
 (display (cond ((> 1 2) 1) ((> 1 2) 2)))"#,
-        &mut code,
         "cond",
         "1\n2\nnil\nnil"
     );
@@ -180,18 +162,11 @@ fn test_cond() {
 
 #[test]
 fn test_simple_expr() {
-    let mut code = CodeGen::new(true);
-    compile!(
-        "(display (+ (* 1 2 3) (/ 3 4)))",
-        &mut code,
-        "simple_expr",
-        6.75
-    );
+    compile!("(display (+ (* 1 2 3) (/ 3 4)))", "simple_expr", 6.75);
 }
 
 #[test]
 fn test_simple_lambda() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
     (display
@@ -199,7 +174,6 @@ fn test_simple_lambda() {
                             ((lambda (x) z)
                              y)))
          3 4 1))"#,
-        &mut code,
         "simple_lambda",
         2
     );
@@ -207,7 +181,6 @@ fn test_simple_lambda() {
 
 #[test]
 fn test_lambda_pattern_matching() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define f (lambda x (car x)))
@@ -222,7 +195,6 @@ fn test_lambda_pattern_matching() {
 (display (h 1 2))
 (newline)
 (display (h 1 't))"#,
-        &mut code,
         "lambda_pattern",
         "a\n2\n2\n2\nt"
     );
@@ -230,13 +202,11 @@ fn test_lambda_pattern_matching() {
 
 #[test]
 fn test_let() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (let ((x 1) (y 2)) (display (+ x y)))
 (newline)
 (let ((x 1) (y 2)) (define z (+ x y)) (display z))"#,
-        &mut code,
         "let",
         "3\n3"
     );
@@ -244,7 +214,6 @@ fn test_let() {
 
 #[test]
 fn test_set() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define x 1)
@@ -256,7 +225,6 @@ fn test_set() {
 ((lambda (a) (set! x a)) 3)
 (display x)
 "#,
-        &mut code,
         "set",
         "1\n2\n3"
     );
@@ -264,7 +232,6 @@ fn test_set() {
 
 #[test]
 fn test_fib() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define (fib x)
@@ -277,7 +244,6 @@ fn test_fib() {
         (cond ((eq? l '()) '())
               ('t (cons (func (car l)) (map func (cdr l)))))))
 (display (map fib '(0 1 2 3 4 5 6 7 8 9 10)))"#,
-        &mut code,
         "fib",
         "(0 1 1 2 3 5 8 13 21 34 55)"
     );
@@ -285,7 +251,6 @@ fn test_fib() {
 
 #[test]
 fn test_reverse() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define (aux lst acc)
@@ -295,7 +260,6 @@ fn test_reverse() {
              (cons (car lst) acc))))
 (define (reverse lst) (aux lst '()))
 (display (reverse '(1 2 3 4 5 6 7 8 9 10)))"#,
-        &mut code,
         "reverse",
         "(10 9 8 7 6 5 4 3 2 1)"
     );
@@ -303,7 +267,6 @@ fn test_reverse() {
 
 #[test]
 fn test_reverse_2() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define (reverse x)
@@ -314,7 +277,6 @@ fn test_reverse_2() {
               (loop temp x))))
   (loop x '()))
 (display (reverse '(1 2 3 4 5 6 7 8 9 10)))"#,
-        &mut code,
         "reverse_2",
         "(10 9 8 7 6 5 4 3 2 1)"
     );
@@ -322,7 +284,6 @@ fn test_reverse_2() {
 
 #[test]
 fn test_sqrt() {
-    let mut code = CodeGen::new(true);
     compile!(
         r#"
 (define (sqrt-iter guess x)
@@ -340,7 +301,6 @@ fn test_sqrt() {
 (define (sqrt x)
     (sqrt-iter 1.0 x))
 (display (sqrt 2))"#,
-        &mut code,
         "sqrt",
         "1.4142156862745097"
     );
