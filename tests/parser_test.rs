@@ -6,6 +6,7 @@ mod tests {
     use relic::lexer::{Lexer, Number};
     use relic::node::Node;
     use relic::parser::Parse;
+    use relic::runtime::{LoadToRuntime, Runtime, StackMachine};
     use relic::symbol::{SpecialForm, Symbol};
     use relic::{nil, vec_to_list};
 
@@ -155,6 +156,9 @@ mod tests {
         let mut lexer = Lexer::new(input);
         let result = Node::parse(&mut lexer);
         let node: Rc<RefCell<Node>> = result.unwrap().into();
-        assert_eq!(format!("{}", node.borrow()), input);
+        let mut runtime = Runtime::new(1);
+        node.load_to(&mut runtime).unwrap();
+        let node = runtime.pop();
+        assert_eq!(format!("{}", runtime.display_node_idx(node)), input);
     }
 }

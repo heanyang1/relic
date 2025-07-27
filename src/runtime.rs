@@ -8,8 +8,8 @@ use crate::{
     env::Env,
     lexer::{Lexer, Number, TokenType},
     logger::{log_debug, log_error},
-    node::Node,
-    symbol::Symbol,
+    node::{Node, Pattern},
+    symbol::{SpecialForm, Symbol},
     util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
 };
 
@@ -105,6 +105,8 @@ impl Env<String, usize, Runtime> for usize {
 pub enum RuntimeNode {
     /// Symbols.
     Symbol(Symbol),
+    /// Special forms.
+    SpecialForm(SpecialForm),
     /// Numbers.
     Number(Number),
     /// Pair of nodes.
@@ -114,6 +116,12 @@ pub enum RuntimeNode {
     Environment(String, HashMap<String, usize>, Option<usize>),
     /// Closures.
     Closure(Closure),
+    /// Compile-time procedure objects.
+    /// The fields are:
+    /// - Pattern
+    /// - Function body (represented by a node)
+    /// - Environment
+    Procedure(Pattern, usize, usize),
     /// Indicates the data is moved to the [data field] position of the other area.
     BrokenHeart(usize),
 }
@@ -176,6 +184,12 @@ pub trait LoadToRuntime {
 impl LoadToRuntime for Number {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
         RuntimeNode::Number(self).load_to(runtime)
+    }
+}
+
+impl LoadToRuntime for SpecialForm {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        RuntimeNode::SpecialForm(self).load_to(runtime)
     }
 }
 
@@ -266,6 +280,55 @@ impl LoadToRuntime for Vec<RuntimeNode> {
         for node in self.into_iter().rev() {
             node.load_to(runtime)?;
             runtime.new_pair();
+        }
+        Ok(())
+    }
+}
+
+impl LoadToRuntime for Rc<RefCell<Node>> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+        fn load_with_visited(
+            node: Rc<RefCell<Node>>,
+            runtime: &mut Runtime,
+            visited: &mut HashMap<*const Node, String>,
+        ) -> Result<(), String> {
+            // TODO: this function is slow. It probably does some redundant work. Fix it.
+            let node_ptr = node.as_ptr() as *const Node;
+            if visited.contains_key(&node_ptr) {
+                let val = runtime.get_root(visited.get(&node_ptr).unwrap());
+                runtime.push(val);
+                Ok(())
+            } else {
+                // Create a placeholder for current node
+                let name = format!("{node_ptr:?}");
+                visited.insert(node_ptr, name.clone());
+                Symbol::Nil.load_to(runtime)?;
+                let nil = runtime.pop();
+                runtime.add_root(name.clone(), nil);
+                // Process current node and save the result to the stack
+                match &*node.borrow() {
+                    Node::Number(num) => num.clone().load_to(runtime)?,
+                    Node::Procedure(_, _, _) => unreachable!(),
+                    Node::SpecialForm(form) => form.clone().load_to(runtime)?,
+                    Node::Symbol(sym) => sym.clone().load_to(runtime)?,
+                    Node::Pair(car, cdr) => {
+                        load_with_visited(cdr.clone(), runtime, visited)?;
+                        load_with_visited(car.clone(), runtime, visited)?;
+                        runtime.new_pair();
+                    }
+                };
+                // Set the value of current node
+                let value = runtime.pop();
+                let node = runtime.get_root(&name);
+                runtime.copy_node(true, value, node);
+                runtime.push(node);
+                Ok(())
+            }
+        }
+        let mut map = HashMap::new();
+        load_with_visited(self, runtime, &mut map)?;
+        for name in map.values() {
+            runtime.remove_root(name);
         }
         Ok(())
     }
@@ -470,7 +533,7 @@ impl Runtime {
         }
     }
 
-    fn to_node(
+    pub fn to_node(
         &self,
         index: usize,
         visited: &mut HashMap<usize, Rc<RefCell<Node>>>,
@@ -514,6 +577,8 @@ impl Runtime {
                 pair
             }
             RuntimeNode::Symbol(val) => Node::Symbol(val.clone()).into(),
+            RuntimeNode::SpecialForm(form) => Node::SpecialForm(form.clone()).into(),
+            RuntimeNode::Procedure(_, _, _) => todo!(),
         }
     }
 
@@ -691,6 +756,19 @@ impl Runtime {
             Err(format!("{} is not a symbol", self.display_node_idx(index)))
         }
     }
+    pub fn get_pair(&self, index: usize) -> Result<(usize, usize), String> {
+        if let RuntimeNode::Pair(car, cdr) = self.get_node(true, index) {
+            Ok((*car, *cdr))
+        } else {
+            Err(format!("{} is not a pair", self.display_node_idx(index)))
+        }
+    }
+
+    pub fn copy_node(&mut self, active: bool, src: usize, dst: usize) {
+        let area = self.get_area_mut(active);
+        let src_val = area.get(src).unwrap();
+        area[dst] = src_val.clone();
+    }
 
     pub fn set_car(&mut self, active: bool, index: usize, target: usize) -> Result<(), String> {
         let area = self.get_area_mut(active);
@@ -764,7 +842,7 @@ impl Runtime {
         self.areas.0.clear();
         self.areas.1.clear();
     }
-    
+
     pub fn get_node(&self, active: bool, index: usize) -> &RuntimeNode {
         self.get_area(active).get(index).unwrap()
     }
