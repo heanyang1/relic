@@ -38,6 +38,10 @@ jobs:
           profile: minimal
           override: true
           components: rust-src, rustfmt, clippy
+      
+      - name: Remove unused Cargo config
+        # `link-arg=-Wl,--export-dynamic` is not a valid flag for WASM. Remove it.
+        run: rm .cargo/config.toml 
 
       - name: Install wasm-pack
         run: cargo install wasm-pack
