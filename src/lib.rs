@@ -187,8 +187,7 @@ fn call_closure(nparams: usize) -> Result<(), String> {
             // Zip the rest of the arguments (args[c.nargs-1..nparams])
             // if the closure is variadic.
             if c.variadic {
-                let values = runtime.node_vec_from_stack(nparams - c.nargs + 1);
-                values.load_to(&mut runtime)?;
+                runtime.zip_stack_nodes(nparams - c.nargs + 1);
             }
 
             // Add the last argument.

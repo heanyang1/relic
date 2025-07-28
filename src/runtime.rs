@@ -260,17 +260,6 @@ impl LoadToRuntime for RuntimeNode {
     }
 }
 
-impl LoadToRuntime for Vec<RuntimeNode> {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
-        Symbol::Nil.load_to(runtime)?;
-        for node in self.into_iter().rev() {
-            node.load_to(runtime)?;
-            runtime.new_pair();
-        }
-        Ok(())
-    }
-}
-
 impl TryFrom<RuntimeNode> for Number {
     type Error = String;
     fn try_from(value: RuntimeNode) -> Result<Self, Self::Error> {
@@ -357,7 +346,12 @@ impl StackMachine<usize> for Runtime {
                 assert_eq!(nargs, 2);
                 let lhs = self.pop();
                 let rhs = self.pop();
-                (if self.node_eq(lhs, rhs) { Symbol::T } else { Symbol::Nil }).load_to(self)
+                (if self.node_eq(lhs, rhs) {
+                    Symbol::T
+                } else {
+                    Symbol::Nil
+                })
+                .load_to(self)
             }
             Symbol::EqNum => rel_op!(self, nargs, ==),
             Symbol::Gt => rel_op!(self, nargs, >),
@@ -399,8 +393,8 @@ impl StackMachine<usize> for Runtime {
                 Ok(())
             }
             Symbol::List => {
-                let operands = self.node_vec_from_stack(nargs);
-                operands.load_to(self)
+                self.zip_stack_nodes(nargs);
+                Ok(())
             }
             Symbol::Number => {
                 assert_eq!(nargs, 1);
@@ -453,7 +447,25 @@ impl Runtime {
         }
         operands
     }
+    pub fn zip_stack_nodes(&mut self, nargs: usize) {
+        // (top) a1 a2 ... an -> (top) an ... a2 a1
+        let mut nodes = Vec::with_capacity(nargs);
+        for _ in 0..nargs {
+            nodes.push(self.pop());
+        }
+        for node in nodes.into_iter() {
+            self.push(node);
+        }
 
+        Symbol::Nil.load_to(self).unwrap();
+        for _ in 0..nargs {
+            // (top) (a_{k+1} ... a_n) a_k a_{k-1} ... a_2 a_1
+            self.swap();
+            // (top) a_k (a_{k+1} ... a_n) a_{k-1} ... a_2 a_1
+            self.new_pair();
+            // (top) (a_k a_{k+1} ... a_n) a_{k-1} ... a_2 a_1
+        }
+    }
     fn pop_as_node(&mut self) -> RuntimeNode {
         let index = self.pop();
         self.get_node(true, index).clone()
