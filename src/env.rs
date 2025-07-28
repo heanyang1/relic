@@ -5,7 +5,7 @@
 /// An environment consists of a variable mapping and a pointer to an outer
 /// environment. `define`, `get` and `set!` operators can be derived once you
 /// provide the correct components.
-pub trait Env<K, V, R = ()>
+pub trait Env<K, V, R>
 where
     V: Clone,
 {

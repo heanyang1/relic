@@ -9,88 +9,11 @@ use std::{
 };
 
 use crate::{
-    env::Env,
     lexer::{Lexer, Number},
     nil,
     parser::Parse,
     symbol::{SpecialForm, Symbol},
 };
-
-/// Compile time environment.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct NodeEnv {
-    /// Variable mapping.
-    pub map: HashMap<String, Rc<RefCell<Node>>>,
-    /// Outer environment. The value is `None` if the environment is global.
-    pub outer: Option<Rc<RefCell<NodeEnv>>>,
-    /// The name of the environment that will be printed on DOT graphs.
-    pub name: String,
-}
-
-impl Display for NodeEnv {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Env {} {{", self.name)?;
-        for (key, value) in &self.map {
-            writeln!(f, "  {}: {}", key, value.borrow())?;
-        }
-        if let Some(outer) = &self.outer {
-            writeln!(f, "  Outer: {}", outer.borrow())?;
-        }
-        writeln!(f, "}}")
-    }
-}
-
-impl Env<String, Rc<RefCell<Node>>> for NodeEnv {
-    fn top(_: &mut ()) -> Self {
-        Self {
-            map: HashMap::new(),
-            outer: None,
-            name: "Global".to_string(),
-        }
-    }
-    fn contains(&self, key: &String, _: &()) -> bool {
-        self.map.contains_key(key)
-    }
-    fn insert_cur(&mut self, key: &String, value: Rc<RefCell<Node>>, _: &mut ()) {
-        self.map.insert(key.to_string(), value);
-    }
-    fn get_cur(&self, key: &String, _: &()) -> Option<Rc<RefCell<Node>>> {
-        self.map.get(key).cloned()
-    }
-    fn has_outer(&self, _: &()) -> bool {
-        self.outer.is_some()
-    }
-    fn do_in_outer<Out, F>(&self, func: F, _: &()) -> Out
-    where
-        F: Fn(&Self) -> Out,
-        Self: Sized,
-    {
-        let outer = self.outer.clone().unwrap();
-        func(&outer.borrow())
-    }
-    fn do_in_outer_mut<Out, F>(&mut self, func: F, _: &mut ()) -> Out
-    where
-        F: Fn(&mut Self, &mut ()) -> Out,
-        Self: Sized,
-    {
-        let outer = self.outer.clone().unwrap();
-        func(&mut outer.borrow_mut(), &mut ())
-    }
-}
-
-impl NodeEnv {
-    pub fn new(
-        outer: Option<Rc<RefCell<NodeEnv>>>,
-        map: HashMap<String, Rc<RefCell<Node>>>,
-        name: &str,
-    ) -> Self {
-        Self {
-            map,
-            outer,
-            name: name.to_string(),
-        }
-    }
-}
 
 /// The data structure of the node in reference counting graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,31 +26,11 @@ pub enum Node {
     Pair(Rc<RefCell<Node>>, Rc<RefCell<Node>>),
     /// An item of special form.
     SpecialForm(SpecialForm),
-    /// Procedure objects. This is what you get when you evaluate a `lambda`.
-    /// The fields are:
-    /// - Pattern
-    /// - Function body (represented by a node)
-    /// - Environment
-    Procedure(Pattern, Rc<RefCell<Node>>, Rc<RefCell<NodeEnv>>),
 }
 
 pub type NodePair = (Rc<RefCell<Node>>, Rc<RefCell<Node>>);
 
 impl Node {
-    pub fn as_int(&self) -> Result<i64, String> {
-        match self {
-            Node::Number(Number::Int(num)) => Ok(*num),
-            _ => Err(format!("{self} is not an integer")),
-        }
-    }
-
-    pub fn as_num(&self) -> Result<Number, String> {
-        match self {
-            Node::Number(num) => Ok(num.clone()),
-            _ => Err(format!("{self} is not a number")),
-        }
-    }
-
     pub fn as_user_symbol(&self) -> Result<String, String> {
         match self {
             Node::Symbol(Symbol::User(name)) => Ok(name.clone()),
@@ -138,26 +41,6 @@ impl Node {
     pub fn as_pair(&self) -> Result<NodePair, String> {
         match self {
             Node::Pair(car, cdr) => Ok((car.clone(), cdr.clone())),
-            _ => Err(format!("{self} is not a pair")),
-        }
-    }
-
-    pub fn set_car(&mut self, value: Rc<RefCell<Node>>) -> Result<(), String> {
-        match self {
-            Node::Pair(car, _) => {
-                *car = value;
-                Ok(())
-            }
-            _ => Err(format!("{self} is not a pair")),
-        }
-    }
-
-    pub fn set_cdr(&mut self, value: Rc<RefCell<Node>>) -> Result<(), String> {
-        match self {
-            Node::Pair(_, cdr) => {
-                *cdr = value;
-                Ok(())
-            }
             _ => Err(format!("{self} is not a pair")),
         }
     }
@@ -321,7 +204,6 @@ impl Node {
                             Node::Symbol(Symbol::Nil) => None,
                             Node::Number(_)
                             | Node::Symbol(_)
-                            | Node::Procedure(_, _, _)
                             | Node::SpecialForm(_) => {
                                 write!(f, " . {node}")?;
                                 None
@@ -339,7 +221,6 @@ impl Node {
                 }
                 write!(f, ")")
             }
-            Node::Procedure(pattern, body, _) => write!(f, "(λ {} {})", pattern, body.borrow()),
         }
     }
 }

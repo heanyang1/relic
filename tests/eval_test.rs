@@ -1,17 +1,12 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
-
-use relic::env::Env;
-use relic::eval::{ConsoleEval, Eval};
 use relic::lexer::{Lexer, Number};
-use relic::node::{self, Node, NodeEnv};
+use relic::node::Node;
 use relic::parser::Parse;
 use relic::preprocess::PreProcess;
 use relic::runtime::RuntimeNode;
 use relic::symbol::Symbol;
-use relic::{RT, nil, rt_pop, rt_start, vec_to_list};
+use relic::{RT, rt_pop, rt_start};
 use serial_test::serial;
+use std::collections::HashMap;
 
 macro_rules! assert_eval_node {
     ($code:expr, $expected:expr) => {{
@@ -596,14 +591,16 @@ fn test_cycle() {
     assert_eval_node!(
         r#"
 (define (last-pair x)
-    (if (eq? (cdr x) '()) x (last-pair (cdr x))))"#,RuntimeNode::Symbol(Symbol::Nil)
+    (if (eq? (cdr x) '()) x (last-pair (cdr x))))"#,
+        RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_node!(
         r#"
 (define (make-cycle x)
     (define y (last-pair x))
     (set-car! y x)
-    x)"#,RuntimeNode::Symbol(Symbol::Nil)
+    x)"#,
+        RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_text!("(make-cycle (list 'a 'b 'c))", "(a b #0#)");
     assert_eval_node!(
@@ -611,7 +608,8 @@ fn test_cycle() {
 (define (make-cycle2 x)
     (define y (last-pair x))
     (set-cdr! y x)
-    x)"#,RuntimeNode::Symbol(Symbol::Nil)
+    x)"#,
+        RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_text!("(make-cycle2 (list 'a 'b 'c))", "(a b c . #0#)");
     let mut runtime = RT.lock().unwrap();

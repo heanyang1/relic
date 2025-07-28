@@ -3,7 +3,7 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
-    body, nil,
+    nil,
     node::{Node, Pattern, pattern_matching},
     symbol::{SpecialForm, Symbol},
     util::vectorize,
@@ -28,6 +28,14 @@ macro_rules! vec_to_list {
     };
     ($e:expr, $($rest:tt)*) => {
         Node::Pair($e, vec_to_list!($($rest)*).into())
+    };
+}
+
+/// Process a list of expression to evaluate, such as the function body of
+/// `lambda`.
+macro_rules! body {
+    ($node: expr) => {
+        Node::Pair(Node::SpecialForm(SpecialForm::Begin).into(), $node)
     };
 }
 
@@ -56,7 +64,6 @@ impl Node {
                 cdr.borrow().deep_copy().into(),
             ),
             Node::SpecialForm(form) => Node::SpecialForm(form.clone()),
-            Node::Procedure(_, _, _) => unreachable!(),
         }
     }
 
@@ -66,7 +73,6 @@ impl Node {
             return;
         }
         match self {
-            Node::Procedure(_, _, _) => unreachable!(),
             Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) => {
                 // do nothing
             }
@@ -81,14 +87,11 @@ impl Node {
 impl PreProcess for Node {
     fn preprocess(&mut self, macros: &mut HashMap<String, Macro>) -> Result<Node, String> {
         match self {
-            // `Procedure`s are created during eval.
-            Node::Procedure(_, _, _) => unreachable!(),
             Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) => Ok(self.deep_copy()),
             Node::Pair(car, cdr) => {
                 let car = car.borrow_mut().preprocess(macros)?;
                 let cdr = cdr.borrow_mut().preprocess(macros)?;
                 match &car {
-                    Node::Procedure(_, _, _) => unreachable!(),
                     Node::Symbol(Symbol::User(sym)) if macros.contains_key(sym) => {
                         let Macro { pattern, template } = macros.get(sym).unwrap();
                         let mut bindings = HashMap::new();

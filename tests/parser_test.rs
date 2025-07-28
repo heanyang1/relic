@@ -1,12 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
     use relic::lexer::{Lexer, Number};
     use relic::node::Node;
     use relic::parser::Parse;
-    use relic::runtime::{LoadToRuntime, Runtime, StackMachine};
     use relic::symbol::{SpecialForm, Symbol};
     use relic::{nil, vec_to_list};
 

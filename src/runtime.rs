@@ -8,8 +8,8 @@ use crate::{
     env::Env,
     lexer::{Lexer, Number, TokenType},
     logger::{log_debug, log_error},
-    node::{Node, Pattern},
-    symbol::{SpecialForm, Symbol},
+    node::Node,
+    symbol::Symbol,
     util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
 };
 

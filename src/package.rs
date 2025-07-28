@@ -1,6 +1,6 @@
 //! Functions related to loading packages and JIT compilation
 
-use std::{cell::RefCell, process::Command, rc::Rc};
+use std::{process::Command};
 
 use libloading::{Library, Symbol};
 

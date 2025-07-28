@@ -1,9 +1,6 @@
 //! The compiler module.
 
-use std::{
-    collections::HashMap,
-    fmt::Display,
-};
+use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     lexer::Number,
@@ -170,7 +167,6 @@ impl Compile for Node {
             }
             Node::Pair(car, cdr) => match &*car.borrow() {
                 Node::Number(num) => Err(format!("{num} can not be the head of a list")),
-                Node::Procedure(_, _, _) => unreachable!(),
                 Node::SpecialForm(form) => match form {
                     // This corresponds to the apply part of the interpreter.
                     // Other objects' application are deferred to run-time, but
@@ -332,7 +328,7 @@ if (rt_is_symbol(rt_top())) {{
                     Ok(())
                 }
             },
-            Node::Procedure(_, _, _) | Node::SpecialForm(_) => unreachable!(),
+            Node::SpecialForm(_) => unreachable!(),
             Node::Symbol(sym) => sym.compile(codegen),
         }
     }
