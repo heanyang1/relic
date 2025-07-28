@@ -5,6 +5,7 @@ pub mod graph;
 pub mod lexer;
 pub mod logger;
 pub mod node;
+pub mod package;
 pub mod parser;
 pub mod preprocess;
 pub mod runtime;
@@ -24,6 +25,7 @@ use crate::{
     lexer::{Lexer, Number},
     logger::{log_error, unwrap_result},
     node::{Node, NodeEnv},
+    package::{call_library_fn, load_library},
     parser::Parse,
     preprocess::PreProcess,
     runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
@@ -31,7 +33,6 @@ use crate::{
     util::CVoidFunc,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use libloading::{self, Library};
 use wasm_bindgen::prelude::*;
 
 #[derive(Clone)]
@@ -529,54 +530,19 @@ pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
     if rt.get_symbol(index).is_ok() { 1 } else { 0 }
 }
 
-/// The function called by [rt_import]. It is designed not to be a method of
-/// [Runtime] to avoid deadlock when loading the package.
-#[cfg(not(target_arch = "wasm32"))]
-fn import(package: &str) -> Result<(), String> {
-    {
-        let runtime = RT.lock().unwrap();
-        if runtime.has_package(package) {
-            return Ok(());
-        }
-    } // unlock RT
-
-    // Find the library and call the function with name `package`, then the
-    // function will load everything into current environment.
-    let lib = unsafe {
-        let lib = Library::new(format!("./lib/{package}.relic")).map_err(|e| e.to_string())?;
-
-        let main: libloading::Symbol<unsafe extern "C" fn() -> i32> = lib
-            .get(&package.to_string().into_bytes())
-            .map_err(|e| e.to_string())?;
-
-        let return_val = main();
-
-        if return_val == 0 {
-            Ok(lib)
-        } else {
-            Err(format!(
-                "Package {package}'s main function returns {return_val}"
-            ))
-        }
-    }?;
-
-    // Add the library to the runtime so it won't be unloaded.
-    let mut runtime = RT.lock().unwrap();
-    runtime.add_package(package.to_string(), lib);
-    Ok(())
-}
-
-#[cfg(target_arch = "wasm32")]
-fn import(_package: &str) -> Result<(), String> {
-    Err("Package imports are not supported in WebAssembly".to_string())
-}
-
 /// Import a package.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_import(name: *const u8) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name_str) = c_str.to_str() {
-        unwrap_result(import(name_str), ());
+        if RT.lock().unwrap().has_package(name_str) {
+            return;
+        }
+        let lib =
+            load_library(&format!("./lib/{name_str}.relic")).expect("error importing package");
+        unwrap_result(call_library_fn(&lib, name_str), ());
+        let mut runtime = RT.lock().unwrap();
+        runtime.add_package(name_str.to_string(), lib);
     } else {
         log_error("Error in rt_import: invalid string");
     }

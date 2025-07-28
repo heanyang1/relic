@@ -3,7 +3,6 @@
 use std::{
     collections::HashMap,
     fmt::Display,
-    sync::{LazyLock, Mutex},
 };
 
 use crate::{
@@ -11,16 +10,8 @@ use crate::{
     logger::log_debug,
     node::{Node, Pattern},
     symbol::{SpecialForm, Symbol},
-    util::{get_n_params, vectorize},
+    util::{get_n_params, inc, vectorize},
 };
-
-static COUNTER: LazyLock<Mutex<usize>> = LazyLock::new(|| Mutex::new(0));
-
-fn inc() -> usize {
-    let mut counter = COUNTER.lock().unwrap();
-    *counter += 1;
-    *counter
-}
 
 /// Type of code generators.
 pub enum CodeGenType {

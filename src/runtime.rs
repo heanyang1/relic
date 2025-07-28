@@ -101,12 +101,10 @@ impl Env<String, usize, Runtime> for usize {
 
 /// The runtime data node. A runtime data node is owned by the garbage
 /// collector and is used by the user to store data structures at run-time.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum RuntimeNode {
     /// Symbols.
     Symbol(Symbol),
-    /// Special forms.
-    SpecialForm(SpecialForm),
     /// Numbers.
     Number(Number),
     /// Pair of nodes.
@@ -116,12 +114,6 @@ pub enum RuntimeNode {
     Environment(String, HashMap<String, usize>, Option<usize>),
     /// Closures.
     Closure(Closure),
-    /// Compile-time procedure objects.
-    /// The fields are:
-    /// - Pattern
-    /// - Function body (represented by a node)
-    /// - Environment
-    Procedure(Pattern, usize, usize),
     /// Indicates the data is moved to the [data field] position of the other area.
     BrokenHeart(usize),
 }
@@ -184,12 +176,6 @@ pub trait LoadToRuntime {
 impl LoadToRuntime for Number {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
         RuntimeNode::Number(self).load_to(runtime)
-    }
-}
-
-impl LoadToRuntime for SpecialForm {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
-        RuntimeNode::SpecialForm(self).load_to(runtime)
     }
 }
 
@@ -285,55 +271,6 @@ impl LoadToRuntime for Vec<RuntimeNode> {
     }
 }
 
-impl LoadToRuntime for Rc<RefCell<Node>> {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
-        fn load_with_visited(
-            node: Rc<RefCell<Node>>,
-            runtime: &mut Runtime,
-            visited: &mut HashMap<*const Node, String>,
-        ) -> Result<(), String> {
-            // TODO: this function is slow. It probably does some redundant work. Fix it.
-            let node_ptr = node.as_ptr() as *const Node;
-            if visited.contains_key(&node_ptr) {
-                let val = runtime.get_root(visited.get(&node_ptr).unwrap());
-                runtime.push(val);
-                Ok(())
-            } else {
-                // Create a placeholder for current node
-                let name = format!("{node_ptr:?}");
-                visited.insert(node_ptr, name.clone());
-                Symbol::Nil.load_to(runtime)?;
-                let nil = runtime.pop();
-                runtime.add_root(name.clone(), nil);
-                // Process current node and save the result to the stack
-                match &*node.borrow() {
-                    Node::Number(num) => num.clone().load_to(runtime)?,
-                    Node::Procedure(_, _, _) => unreachable!(),
-                    Node::SpecialForm(form) => form.clone().load_to(runtime)?,
-                    Node::Symbol(sym) => sym.clone().load_to(runtime)?,
-                    Node::Pair(car, cdr) => {
-                        load_with_visited(cdr.clone(), runtime, visited)?;
-                        load_with_visited(car.clone(), runtime, visited)?;
-                        runtime.new_pair();
-                    }
-                };
-                // Set the value of current node
-                let value = runtime.pop();
-                let node = runtime.get_root(&name);
-                runtime.copy_node(true, value, node);
-                runtime.push(node);
-                Ok(())
-            }
-        }
-        let mut map = HashMap::new();
-        load_with_visited(self, runtime, &mut map)?;
-        for name in map.values() {
-            runtime.remove_root(name);
-        }
-        Ok(())
-    }
-}
-
 impl TryFrom<RuntimeNode> for Number {
     type Error = String;
     fn try_from(value: RuntimeNode) -> Result<Self, Self::Error> {
@@ -418,9 +355,9 @@ impl StackMachine<usize> for Runtime {
             Symbol::Div => arith_op!(self, nargs, /),
             Symbol::Eq => {
                 assert_eq!(nargs, 2);
-                let lhs = self.pop_as_node();
-                let rhs = self.pop_as_node();
-                (if lhs == rhs { Symbol::T } else { Symbol::Nil }).load_to(self)
+                let lhs = self.pop();
+                let rhs = self.pop();
+                (if self.node_eq(lhs, rhs) { Symbol::T } else { Symbol::Nil }).load_to(self)
             }
             Symbol::EqNum => rel_op!(self, nargs, ==),
             Symbol::Gt => rel_op!(self, nargs, >),
@@ -431,9 +368,9 @@ impl StackMachine<usize> for Runtime {
                 assert_eq!(nargs, 1);
                 let val = self.pop_as_node();
                 (if let RuntimeNode::Pair(_, _) = val {
-                    Symbol::T
-                } else {
                     Symbol::Nil
+                } else {
+                    Symbol::T
                 })
                 .load_to(self)
             }
@@ -488,6 +425,10 @@ impl Runtime {
 
     pub fn has_package(&self, name: &str) -> bool {
         self.packages.contains_key(name)
+    }
+
+    pub fn get_package(&self, name: &str) -> &Library {
+        self.packages.get(name).unwrap()
     }
 }
 
@@ -577,8 +518,6 @@ impl Runtime {
                 pair
             }
             RuntimeNode::Symbol(val) => Node::Symbol(val.clone()).into(),
-            RuntimeNode::SpecialForm(form) => Node::SpecialForm(form.clone()).into(),
-            RuntimeNode::Procedure(_, _, _) => todo!(),
         }
     }
 
@@ -691,7 +630,7 @@ impl Runtime {
     }
 
     /// Perform GC and insert a node into GC area.
-    fn new_node_with_gc(&mut self, node: RuntimeNode) -> usize {
+    pub fn new_node_with_gc(&mut self, node: RuntimeNode) -> usize {
         self.try_gc();
         self.new_node(node)
     }
@@ -899,6 +838,22 @@ impl Runtime {
             map.insert(key.to_string(), value);
         } else {
             panic!("Not an environment")
+        }
+    }
+
+    pub fn node_eq(&self, a: usize, b: usize) -> bool {
+        match (self.get_node(true, a), self.get_node(true, b)) {
+            (RuntimeNode::Symbol(a), RuntimeNode::Symbol(b)) => a == b,
+            (RuntimeNode::Number(a), RuntimeNode::Number(b)) => a == b,
+            (RuntimeNode::Pair(a, b), RuntimeNode::Pair(c, d)) => {
+                self.node_eq(*a, *c) && self.node_eq(*b, *d)
+            }
+            (RuntimeNode::Environment(a, b, c), RuntimeNode::Environment(d, e, f)) => {
+                a == d && b == e && c == f
+            }
+            (RuntimeNode::Closure(a), RuntimeNode::Closure(b)) => a == b,
+            (RuntimeNode::BrokenHeart(a), RuntimeNode::BrokenHeart(b)) => a == b,
+            (_, _) => false,
         }
     }
 }

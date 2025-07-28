@@ -122,12 +122,11 @@ fn cycle_test() {
 
         let node = runtime.to_node(first, &mut HashMap::new());
         assert_eq!(loop_str, format!("{}", node.borrow()));
-        
-        node.load_to(runtime).unwrap();
-        runtime.gc();
 
-        let node = runtime.pop();
-        assert_eq!(loop_str, format!("{}", runtime.display_node_idx(node)));
+        // node.load_to(runtime).unwrap();
+        // runtime.gc();
 
+        // let node = runtime.pop();
+        // assert_eq!(loop_str, format!("{}", runtime.display_node_idx(node)));
     })
 }

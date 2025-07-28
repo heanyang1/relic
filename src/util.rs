@@ -1,6 +1,13 @@
 //! Utility functions.
 
-use std::{cell::RefCell, collections::HashMap, ffi::c_void, fmt::Display, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    ffi::c_void,
+    fmt::Display,
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use crate::{lexer::Number, nil, node::Node, symbol::Symbol};
 
@@ -96,3 +103,8 @@ pub fn vectorize(lst: Rc<RefCell<Node>>) -> Result<Vec<Rc<RefCell<Node>>>, Strin
 }
 
 pub type CVoidFunc = extern "C" fn() -> c_void;
+
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
+pub fn inc() -> usize {
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}

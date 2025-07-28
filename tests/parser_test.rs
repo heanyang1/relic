@@ -150,15 +150,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_display() {
-        let input = "((* 1 (+ 2 3)) (4 5 . 6) (car (((7) 8)) cdr))";
-        let mut lexer = Lexer::new(input);
-        let result = Node::parse(&mut lexer);
-        let node: Rc<RefCell<Node>> = result.unwrap().into();
-        let mut runtime = Runtime::new(1);
-        node.load_to(&mut runtime).unwrap();
-        let node = runtime.pop();
-        assert_eq!(format!("{}", runtime.display_node_idx(node)), input);
-    }
+    // #[test]
+    // fn test_display() {
+    //     let input = "((* 1 (+ 2 3)) (4 5 . 6) (car (((7) 8)) cdr))";
+    //     let mut lexer = Lexer::new(input);
+    //     let result = Node::parse(&mut lexer);
+    //     let node: Rc<RefCell<Node>> = result.unwrap().into();
+    //     let mut runtime = Runtime::new(1);
+    //     node.load_to(&mut runtime).unwrap();
+    //     let node = runtime.pop();
+    //     assert_eq!(format!("{}", runtime.display_node_idx(node)), input);
+    // }
 }
