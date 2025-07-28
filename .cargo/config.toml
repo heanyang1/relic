@@ -1,4 +1,4 @@
 # Makes symbols from executable available to dynamically loaded libraries
-# such as Relic packages. Only needed for non-WASM targets.
+# such as Relic packages.
 [build]
 rustflags = ["-C", "link-arg=-Wl,--export-dynamic"]
