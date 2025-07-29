@@ -196,9 +196,6 @@ impl Compile for Node {
                         body.compile(&mut lambda_gen)?;
                         codegen.merge(lambda_gen);
 
-                        let x = pattern.is_proper_list();
-                        log_debug(format!("is_proper_list: {x}"));
-
                         // Write the code that creates the closure.
                         codegen.append_code(&format!(
                             "rt_new_closure({lambda_id}, func_{lambda_id}, {}, {});",

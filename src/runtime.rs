@@ -129,7 +129,9 @@ enum DbgState {
     /// Enter debugger when hitting a breakpoint.
     Normal = 1,
     /// Enter debugger after evaluating an expression.
-    Step = 2,
+    Next = 2,
+    /// Enter debugger after every runtime API call.
+    Step = 3,
 }
 
 /// The runtime.
@@ -553,8 +555,7 @@ impl Runtime {
 
 // Debugger
 impl Runtime {
-    fn get_cmd(&mut self) {
-        assert!(self.dbg_state >= DbgState::Normal);
+    fn dbg_loop(&mut self) {
         loop {
             print!("dbg> ");
             io::stdout().flush().unwrap();
@@ -563,6 +564,10 @@ impl Runtime {
             match buf.as_str().trim_end() {
                 "s" | "step" => {
                     self.dbg_state = DbgState::Step;
+                    return;
+                }
+                "n" | "next" => {
+                    self.dbg_state = DbgState::Next;
                     return;
                 }
                 "c" | "continue" => {
@@ -586,7 +591,7 @@ impl Runtime {
                             };
                         }
                         None => log_error(
-                            "Wrong input. Available commands: (s)tep, (c)ontinue, (p)rint, (r)untime. Press C-c to quit.",
+                            "Wrong input. Available commands: (s)tep, (n)ext, (c)ontinue, (p)rint, (r)untime. Press C-c to quit.",
                         ),
                     }
                 }
@@ -596,18 +601,24 @@ impl Runtime {
     pub fn breakpoint(&mut self) {
         if self.dbg_state >= DbgState::Normal {
             log_debug(format!("Hit a breakpoint"));
-            self.get_cmd()
+            self.dbg_loop()
         }
     }
     pub fn evaluated(&mut self, info: &str) {
-        if self.dbg_state >= DbgState::Step {
+        if self.dbg_state >= DbgState::Next {
             let result = self.top();
-            log_debug(format!("{} -> {}", info, self.display_node_idx(result)));
-            self.get_cmd()
+            log_debug(format!("{}\n\t|-> {}", info, self.display_node_idx(result)));
+            self.dbg_loop()
+        }
+    }
+    pub fn api_called(&mut self, info: String) {
+        if self.dbg_state >= DbgState::Step {
+            log_debug(format!("API called: {info}"));
+            self.dbg_loop()
         }
     }
     pub fn begin_debug(&mut self) {
-        self.dbg_state = DbgState::Step;
+        self.dbg_loop();
     }
 }
 
