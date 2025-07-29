@@ -42,6 +42,63 @@ pub extern "C" fn rt_new_closure(id: usize, func: CVoidFunc, nargs: usize, varia
     val.load_to(&mut rt).unwrap();
 }
 
+/// The tail-recursive version of [call_closure].
+fn tail_call_closure(nparams: usize) -> Result<(), String> {
+    let c = {
+        let mut runtime = RT.lock().unwrap();
+        let index = runtime.pop();
+        let c = if let RuntimeNode::Closure(c) = runtime.get_node(true, index) {
+            Ok(c)
+        } else {
+            Err(format!(
+                "{} is not a closure",
+                runtime.display_node_idx(index)
+            ))
+        }?
+        .clone();
+
+        if !c.variadic && c.nargs != nparams {
+            return Err(format!(
+                "arity mismatch: expect {}, found {}",
+                c.nargs, nparams
+            ));
+        }
+
+        // Construct and move to an environment.
+        let env = runtime.new_env("closure".to_string(), c.env);
+        runtime.move_to_env(env);
+
+        if c.nargs > 0 {
+            // Add arguments to the environment.
+            for i in 0..c.nargs - 1 {
+                let value = runtime.pop();
+                runtime
+                    .current_env()
+                    .define(&format!("#{i}_func_{}", c.id), value, &mut runtime);
+            }
+
+            // Zip the rest of the arguments (args[c.nargs-1..nparams])
+            // if the closure is variadic.
+            if c.variadic {
+                runtime.zip_stack_nodes(nparams - c.nargs + 1);
+            }
+
+            // Add the last argument.
+            let last = runtime.pop();
+            runtime.current_env().define(
+                &format!("#{}_func_{}", c.nargs - 1, c.id),
+                last,
+                &mut runtime,
+            );
+        }
+        c
+    }; // unlocks runtime
+
+    // Call function in the environment. Locks runtime.
+    (c.body)();
+    Ok(())
+}
+
 /// The function called by [rt_call_closure]. It is designed not to be a method
 /// of [Runtime] to avoid deadlock when calling the closure.
 fn call_closure(nparams: usize) -> Result<(), String> {
@@ -117,7 +174,6 @@ fn call_closure(nparams: usize) -> Result<(), String> {
     runtime.push(ret);
     Ok(())
 }
-
 /// Calls a closure.
 ///
 /// The parameters are in the stack. The first element popped has name `#0`,
@@ -136,6 +192,24 @@ pub extern "C" fn rt_call_closure(nparams: usize) -> i32 {
         1
     } else {
         log_error("Error in rt_call_closure: invalid parameters");
+        0
+    }
+}
+/// Calls a closure.
+///
+/// This is the tail-recursive version of `rt_call_closure`.
+/// TODO: Actually it is not tail recursive, we should move everything into C
+/// and make the C compiler optimize the code so it can be truly tail-recursive.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_tail_call_closure(nparams: usize) -> i32 {
+    {
+        let mut runtime = RT.lock().unwrap();
+        runtime.api_called(format!("rt_tail_call_closure({nparams})"));
+    }
+    if tail_call_closure(nparams).is_ok() {
+        1
+    } else {
+        log_error("Error in rt_tail_call_closure: invalid parameters");
         0
     }
 }

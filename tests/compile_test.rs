@@ -1,16 +1,16 @@
 use std::{collections::HashMap, ffi::CString, path::Path, process::Command};
 
-use serial_test::serial;
 use relic::{
     RT,
-    compile::{CodeGen, Compile},
+    compile::{self, CodeGen},
     lexer::{Lexer, Number},
     node::Node,
     parser::Parse,
     preprocess::PreProcess,
-    symbol::Symbol,
     rt_get, rt_import, rt_start,
+    symbol::Symbol,
 };
+use serial_test::serial;
 
 fn compile_and_load(input: &str, lib_name: &str) {
     let mut tokens = Lexer::new(input);
@@ -19,7 +19,7 @@ fn compile_and_load(input: &str, lib_name: &str) {
 
     while let Ok(mut node) = Node::parse(&mut tokens) {
         let node = node.preprocess(&mut macros).unwrap();
-        node.compile(&mut codegen).unwrap();
+        compile::compile(&node, &mut codegen).unwrap();
     }
     let c_code = codegen.to_string();
     std::fs::write(format!("/tmp/relic_{}.c", lib_name), c_code).unwrap();
@@ -68,7 +68,7 @@ fn compile(input: &str, filename: &str, output: &str) {
 
     while let Ok(mut node) = Node::parse(&mut tokens) {
         let node = node.preprocess(&mut macros).unwrap();
-        node.compile(&mut codegen).unwrap();
+        compile::compile(&node, &mut codegen).unwrap();
     }
     // Create c_runtime/tests directory if it doesn't exist
     let test_dir = Path::new("c_runtime/tests");
@@ -394,9 +394,8 @@ fn test_set() {
 
 #[test]
 #[serial]
-fn test_fib() { 
-    let code = 
-        r#"
+fn test_fib() {
+    let code = r#"
 (define (fib x)
     (if (< x 2)
         x
@@ -422,8 +421,7 @@ fn test_fib() {
 #[test]
 #[serial]
 fn test_reverse() {
-    let code = 
-        r#"
+    let code = r#"
 (define (aux lst acc)
     (if (eq? lst '())
         acc
@@ -446,8 +444,7 @@ fn test_reverse() {
 #[test]
 #[serial]
 fn test_reverse_2() {
-    let code = 
-        r#"
+    let code = r#"
 (define (reverse x)
   (define (loop x y)
     (cond ((eq? x '()) y)
@@ -471,8 +468,7 @@ fn test_reverse_2() {
 #[test]
 #[serial]
 fn test_sqrt() {
-    let code = 
-        r#"
+    let code = r#"
 (define (sqrt-iter guess x)
     (if (good-enough? guess x)
         guess

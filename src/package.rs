@@ -5,10 +5,7 @@ use std::{process::Command};
 use libloading::{Library, Symbol};
 
 use crate::{
-    RT,
-    compile::{CodeGen, Compile},
-    node::Node,
-    util::inc,
+    compile::{compile, CodeGen}, node::Node, util::inc, RT
 };
 
 pub fn load_library(name: &str) -> Result<Library, String> {
@@ -47,7 +44,7 @@ impl Node {
 
         // node -> .c
         let mut codegen = CodeGen::new_library(lib_name.to_string());
-        self.compile(&mut codegen)?;
+        compile(&self, &mut codegen)?;
         let c_code = codegen.to_string();
         std::fs::write(&c_source_name, c_code).map_err(|e| e.to_string())?;
 

@@ -29,6 +29,7 @@ extern size_t rt_get(const char *name);
 extern char *rt_get_symbol(size_t index);
 extern void rt_apply(size_t nargs);
 extern void rt_call_closure(size_t nargs);
+extern void rt_tail_call_closure(size_t nargs);
 extern void rt_new_closure(size_t id, void (*func)(void), size_t nargs, int variadic);
 extern int rt_is_symbol(size_t index);
 extern void rt_evaluated(const char *name);

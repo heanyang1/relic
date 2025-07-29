@@ -7,16 +7,7 @@ use std::{
 };
 
 use relic::{
-    RT,
-    compile::{CodeGen, Compile},
-    lexer::Lexer,
-    logger::{LogLevel, log_error, set_log_level, unwrap_result},
-    node::Node,
-    parser::{Parse, ParseError},
-    preprocess::PreProcess,
-    rt_start,
-    runtime::StackMachine,
-    symbol::Symbol,
+    compile::{compile, CodeGen}, lexer::Lexer, logger::{log_error, set_log_level, unwrap_result, LogLevel}, node::Node, parser::{Parse, ParseError}, preprocess::PreProcess, rt_start, runtime::StackMachine, symbol::Symbol, RT
 };
 
 use clap::{Parser, ValueEnum};
@@ -117,7 +108,7 @@ fn main() {
             };
             match input_node {
                 Some(node) => {
-                    unwrap_result(node.compile(&mut codegen), ());
+                    unwrap_result(compile(&node, &mut codegen), ());
                     match cli.output_path {
                         Some(output_path) => {
                             let mut output_file = File::create(output_path).unwrap();
