@@ -54,6 +54,7 @@ impl Node {
                 "-Ic_runtime",
                 "-shared",
                 "-fPIC",
+                "-O3",
                 "-o",
                 &lib_full_name,
                 &c_source_name,

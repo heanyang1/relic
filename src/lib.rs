@@ -31,6 +31,60 @@ pub extern "C" fn rt_start() {
     rt.top_env();
 }
 
+/// Add a root variable
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_add_root(name: *const u8, value: usize) -> usize {
+    let mut rt = RT.lock().unwrap();
+    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
+    if let Ok(name_str) = c_str.to_str() {
+        rt.add_root(name_str.to_string(), value);
+        1
+    } else {
+        log_error("Error in rt_set_root: invalid string");
+        0
+    }
+}
+
+/// Set a root variable
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_set_root(name: *const u8, value: usize) -> usize {
+    let mut rt = RT.lock().unwrap();
+    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
+    if let Ok(name_str) = c_str.to_str() {
+        rt.set_root(name_str.to_string(), value);
+        1
+    } else {
+        log_error("Error in rt_set_root: invalid string");
+        0
+    }
+}
+
+/// Get the root variable value
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_get_root(name: *const u8) -> usize {
+    let rt = RT.lock().unwrap();
+    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
+    if let Ok(name_str) = c_str.to_str() {
+        rt.get_root(name_str)
+    } else {
+        log_error("Error in rt_get_root: invalid string");
+        0
+    }
+}
+
+/// Remove a root variable
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_remove_root(name: *const u8) -> usize {
+    let mut rt = RT.lock().unwrap();
+    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
+    if let Ok(name_str) = c_str.to_str() {
+        rt.remove_root(name_str)
+    } else {
+        log_error("Error in rt_remove_root: invalid string");
+        0
+    }
+}
+
 /// Create a new closure and push the result to the stack.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_closure(id: usize, func: CVoidFunc, nargs: usize, variadic: bool) {
@@ -42,179 +96,23 @@ pub extern "C" fn rt_new_closure(id: usize, func: CVoidFunc, nargs: usize, varia
     val.load_to(&mut rt).unwrap();
 }
 
-/// The tail-recursive version of [call_closure].
-fn tail_call_closure(nparams: usize) -> Result<(), String> {
-    let c = {
-        let mut runtime = RT.lock().unwrap();
-        let index = runtime.pop();
-        let c = if let RuntimeNode::Closure(c) = runtime.get_node(true, index) {
-            Ok(c)
-        } else {
-            Err(format!(
-                "{} is not a closure",
-                runtime.display_node_idx(index)
-            ))
-        }?
-        .clone();
-
-        if !c.variadic && c.nargs != nparams {
-            return Err(format!(
-                "arity mismatch: expect {}, found {}",
-                c.nargs, nparams
-            ));
-        }
-
-        // Construct and move to an environment.
-        let env = runtime.new_env("closure".to_string(), c.env);
-        runtime.move_to_env(env);
-
-        if c.nargs > 0 {
-            // Add arguments to the environment.
-            for i in 0..c.nargs - 1 {
-                let value = runtime.pop();
-                runtime
-                    .current_env()
-                    .define(&format!("#{i}_func_{}", c.id), value, &mut runtime);
-            }
-
-            // Zip the rest of the arguments (args[c.nargs-1..nparams])
-            // if the closure is variadic.
-            if c.variadic {
-                runtime.zip_stack_nodes(nparams - c.nargs + 1);
-            }
-
-            // Add the last argument.
-            let last = runtime.pop();
-            runtime.current_env().define(
-                &format!("#{}_func_{}", c.nargs - 1, c.id),
-                last,
-                &mut runtime,
-            );
-        }
-        c
-    }; // unlocks runtime
-
-    // Call function in the environment. Locks runtime.
-    (c.body)();
-    Ok(())
-}
-
-/// The function called by [rt_call_closure]. It is designed not to be a method
-/// of [Runtime] to avoid deadlock when calling the closure.
-fn call_closure(nparams: usize) -> Result<(), String> {
-    let c = {
-        let mut runtime = RT.lock().unwrap();
-        let index = runtime.pop();
-        let c = if let RuntimeNode::Closure(c) = runtime.get_node(true, index) {
-            Ok(c)
-        } else {
-            Err(format!(
-                "{} is not a closure",
-                runtime.display_node_idx(index)
-            ))
-        }?
-        .clone();
-
-        if !c.variadic && c.nargs != nparams {
-            return Err(format!(
-                "arity mismatch: expect {}, found {}",
-                c.nargs, nparams
-            ));
-        }
-
-        // We set `old_env` to root temporarily so that it won't be mixed up with
-        // parameters in the stack.
-        let old_env = runtime.current_env();
-        runtime.add_root("__old_env".to_string(), old_env);
-
-        // Construct and move to an environment.
-        let env = runtime.new_env("closure".to_string(), c.env);
-        runtime.move_to_env(env);
-
-        if c.nargs > 0 {
-            // Add arguments to the environment.
-            for i in 0..c.nargs - 1 {
-                let value = runtime.pop();
-                runtime
-                    .current_env()
-                    .define(&format!("#{i}_func_{}", c.id), value, &mut runtime);
-            }
-
-            // Zip the rest of the arguments (args[c.nargs-1..nparams])
-            // if the closure is variadic.
-            if c.variadic {
-                runtime.zip_stack_nodes(nparams - c.nargs + 1);
-            }
-
-            // Add the last argument.
-            let last = runtime.pop();
-            runtime.current_env().define(
-                &format!("#{}_func_{}", c.nargs - 1, c.id),
-                last,
-                &mut runtime,
-            );
-        }
-
-        // here we can save `old_env` to the stack.
-        let old_env = runtime.remove_root("__old_env");
-        runtime.push(old_env);
-        c
-    }; // unlocks runtime
-
-    // Call function in the environment. Locks runtime.
-    (c.body)();
-
+/// Calls [Runtime::get_c_func].
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_get_c_func(cid: usize) -> Option<CVoidFunc> {
     let mut runtime = RT.lock().unwrap();
-    let ret = runtime.pop();
-
-    // Move back to the previous environment.
-    let old_env = runtime.pop();
-    runtime.move_to_env(old_env);
-
-    runtime.push(ret);
-    Ok(())
+    runtime.api_called(format!("rt_get_c_func({cid})"));
+    unwrap_result(runtime.get_c_func(cid), None)
 }
-/// Calls a closure.
-///
-/// The parameters are in the stack. The first element popped has name `#0`,
-/// the second element popped has name `#1`, etc.
-/// Pushes the return value to the stack when returned.
-///
-/// When an error occurs, the closure is popped from the stack and environment
-/// remains unchanged.
+
+/// Calls [Runtime::prepare_args].
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_call_closure(nparams: usize) -> i32 {
-    {
-        let mut runtime = RT.lock().unwrap();
-        runtime.api_called(format!("rt_call_closure({nparams})"));
-    }
-    if call_closure(nparams).is_ok() {
-        1
-    } else {
-        log_error("Error in rt_call_closure: invalid parameters");
-        0
-    }
-}
-/// Calls a closure.
-///
-/// This is the tail-recursive version of `rt_call_closure`.
-/// TODO: Actually it is not tail recursive, we should move everything into C
-/// and make the C compiler optimize the code so it can be truly tail-recursive.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_tail_call_closure(nparams: usize) -> i32 {
-    {
-        let mut runtime = RT.lock().unwrap();
-        runtime.api_called(format!("rt_tail_call_closure({nparams})"));
-    }
-    if tail_call_closure(nparams).is_ok() {
-        1
-    } else {
-        log_error("Error in rt_tail_call_closure: invalid parameters");
-        0
-    }
+pub extern "C" fn rt_prepare_args(cid: usize, nparams: usize) {
+    let mut runtime = RT.lock().unwrap();
+    runtime.api_called(format!("rt_prepare_args({cid}, {nparams})"));
+    unwrap_result(runtime.prepare_args(cid, nparams), ());
 }
 
-/// Push a node index onto the stack
+/// Calls [Runtime::push].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_push(index: usize) {
     let mut rt = RT.lock().unwrap();
@@ -222,12 +120,20 @@ pub extern "C" fn rt_push(index: usize) {
     rt.push(index);
 }
 
-/// Pop a node index from the stack
+/// Calls [Runtime::pop].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_pop() -> usize {
     let mut rt = RT.lock().unwrap();
     rt.api_called(format!("rt_pop()"));
     rt.pop()
+}
+
+/// Calls [Runtime::swap].
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_swap() {
+    let mut rt = RT.lock().unwrap();
+    rt.api_called(format!("rt_swap()"));
+    rt.swap()
 }
 
 /// Get the stack top

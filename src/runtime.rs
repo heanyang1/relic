@@ -692,6 +692,14 @@ impl Runtime {
     pub fn get_node_mut(&mut self, active: bool, index: usize) -> &mut RuntimeNode {
         self.get_area_mut(active).get_mut(index).unwrap()
     }
+    /// Get the underlying C function pointer of a closure.
+    pub fn get_c_func(&self, index: usize) -> Result<Option<CVoidFunc>, String> {
+        if let RuntimeNode::Closure(c) = self.get_node(true, index) {
+            Ok(Some(c.body))
+        } else {
+            Err(format!("{} is not a number", self.display_node_idx(index)))
+        }
+    }
     pub fn get_number(&self, index: usize) -> Result<Number, String> {
         if let RuntimeNode::Number(val) = self.get_node(true, index) {
             Ok(val.clone())
@@ -780,6 +788,52 @@ impl Runtime {
         } else {
             panic!("Not an environment")
         }
+    }
+
+    /// Pop the arguments from the stack and save them in a new environment.
+    ///
+    /// The first element popped has name `{func_id}_func_#0`, the second
+    /// element popped has name `{func_id}_func_#1`, etc.
+    pub fn prepare_args(&mut self, cid: usize, nparams: usize) -> Result<(), String> {
+        let c = if let RuntimeNode::Closure(c) = self.get_node(true, cid) {
+            Ok(c)
+        } else {
+            Err(format!("{} is not a closure", self.display_node_idx(cid)))
+        }?
+        .clone();
+
+        if (!c.variadic && c.nargs != nparams) || (c.variadic && c.nargs > nparams) {
+            return Err(format!(
+                "arity mismatch: expect {}, found {}",
+                c.nargs, nparams
+            ));
+        }
+
+        // Construct and move to an environment.
+        let env = self.new_env("closure".to_string(), c.env);
+        self.move_to_env(env);
+
+        if c.nargs > 0 {
+            // Add arguments to the environment.
+            for i in 0..c.nargs - 1 {
+                let value = self.pop();
+                self.current_env()
+                    .define(&format!("#{i}_func_{}", c.id), value, self);
+            }
+
+            // Zip the rest of the arguments (args[c.nargs-1..nparams])
+            // if the closure is variadic.
+            if c.variadic {
+                self.zip_stack_nodes(nparams - c.nargs + 1);
+            }
+
+            // Add the last argument.
+            let last = self.pop();
+            self.current_env()
+                .define(&format!("#{}_func_{}", c.nargs - 1, c.id), last, self);
+        }
+
+        Ok(())
     }
 }
 

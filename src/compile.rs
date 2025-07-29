@@ -410,12 +410,24 @@ fflush(NULL);"#,
                         },
                     )?;
 
-                    // If we don't need to restore the environment, we can call
-                    // `rt_tail_call_closure` instead of `rt_call_closure`.
                     let call_closure = if ctx.drop_env {
-                        format!("rt_tail_call_closure({len_operands});")
+                        format!(r#"
+rt_add_root("__closure", rt_pop());
+rt_prepare_args(rt_get_root("__closure"), {len_operands});
+c_func func = rt_get_c_func(rt_remove_root("__closure"));
+func();
+"#)
                     } else {
-                        format!("rt_call_closure({len_operands});")
+                        format!(r#"
+rt_add_root("__old_env", rt_current_env());
+rt_add_root("__closure", rt_pop());
+rt_prepare_args(rt_get_root("__closure"), {len_operands});
+rt_push(rt_remove_root("__old_env"));
+c_func func = rt_get_c_func(rt_remove_root("__closure"));
+func();
+rt_swap();
+rt_move_to_env(rt_pop());
+"#)
                     };
 
                     codegen.append_code(&format!(

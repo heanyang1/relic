@@ -20,6 +20,7 @@ macro_rules! assert_eval_node {
             runtime.new_node_with_gc($expected)
         };
         let index = rt_pop();
+        println!("{}", RT.lock().unwrap().display_node_idx(index));
         assert!(RT.lock().unwrap().node_eq(index, expected))
     }};
 

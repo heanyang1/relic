@@ -1,5 +1,7 @@
 /target
 tarpaulin-report.html
+compile_commands.json
+.cache
 *.dot
 *.svg
 *.c
