@@ -1,11 +1,14 @@
 //! Functions related to loading packages and JIT compilation
 
-use std::{process::Command};
+use std::process::Command;
 
 use libloading::{Library, Symbol};
 
 use crate::{
-    compile::{compile, CodeGen}, node::Node, util::inc, RT
+    RT,
+    compile::{CodeGen, compile},
+    node::Node,
+    util::inc,
 };
 
 pub fn load_library(name: &str) -> Result<Library, String> {
@@ -34,7 +37,7 @@ pub fn call_library_fn(lib: &Library, func_name: &str) -> Result<(), String> {
 ///
 /// This function can not be called when holding [RT].
 impl Node {
-    pub fn jit_compile(&self) -> Result<(), String> {
+    pub fn jit_compile(&self, debug_info: bool) -> Result<(), String> {
         // make a directory for Relic runtime if it doesn't exist
         std::fs::create_dir_all("/tmp/relic").map_err(|e| e.to_string())?;
 
@@ -44,7 +47,7 @@ impl Node {
 
         // node -> .c
         let mut codegen = CodeGen::new_library(lib_name.to_string());
-        compile(&self, &mut codegen)?;
+        compile(&self, &mut codegen, debug_info)?;
         let c_code = codegen.to_string();
         std::fs::write(&c_source_name, c_code).map_err(|e| e.to_string())?;
 
@@ -55,6 +58,7 @@ impl Node {
                 "-shared",
                 "-fPIC",
                 "-O3",
+                "-g",
                 "-o",
                 &lib_full_name,
                 &c_source_name,

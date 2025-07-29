@@ -19,7 +19,7 @@ fn compile_and_load(input: &str, lib_name: &str) {
 
     while let Ok(mut node) = Node::parse(&mut tokens) {
         let node = node.preprocess(&mut macros).unwrap();
-        compile::compile(&node, &mut codegen).unwrap();
+        compile::compile(&node, &mut codegen, false).unwrap();
     }
     let c_code = codegen.to_string();
     std::fs::write(format!("/tmp/relic_{}.c", lib_name), c_code).unwrap();
@@ -68,7 +68,7 @@ fn compile(input: &str, filename: &str, output: &str) {
 
     while let Ok(mut node) = Node::parse(&mut tokens) {
         let node = node.preprocess(&mut macros).unwrap();
-        compile::compile(&node, &mut codegen).unwrap();
+        compile::compile(&node, &mut codegen, false).unwrap();
     }
     // Create c_runtime/tests directory if it doesn't exist
     let test_dir = Path::new("c_runtime/tests");

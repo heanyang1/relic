@@ -604,10 +604,18 @@ impl Runtime {
             self.dbg_loop()
         }
     }
-    pub fn evaluated(&mut self, info: &str) {
+
+    /// This statement is inserted by the compiler as debug information.
+    /// if `optimized` is true, then the return value is optimized and
+    /// not on the stack.
+    pub fn evaluated(&mut self, info: &str, optimized: bool) {
         if self.dbg_state >= DbgState::Next {
-            let result = self.top();
-            log_debug(format!("{}\n\t|-> {}", info, self.display_node_idx(result)));
+            if optimized {
+                log_debug(format!("{}\n\t|-> [optimized]", info));
+            } else {
+                let result = self.top();
+                log_debug(format!("{}\n\t|-> {}", info, self.display_node_idx(result)));
+            }
             self.dbg_loop()
         }
     }
@@ -956,7 +964,7 @@ impl Runtime {
     /// Create a pair using the two elements from the stack. The first element
     /// popped is `car` and the second one is `cdr`.
     pub fn new_pair(&mut self) {
-        self.gc();
+        self.try_gc();
         let car = self.pop();
         let cdr = self.pop();
         let pair = self.new_node(RuntimeNode::Pair(car, cdr));

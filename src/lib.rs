@@ -16,7 +16,7 @@ use crate::{
     lexer::Number,
     logger::{log_error, unwrap_result},
     package::{call_library_fn, load_library},
-    runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
+    runtime::{Closure, LoadToRuntime, Runtime, StackMachine},
     symbol::Symbol,
     util::CVoidFunc,
 };
@@ -412,17 +412,18 @@ pub extern "C" fn rt_import(name: *const u8) {
     }
 }
 
+/// Calls [Runtime::breakpoint].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_breakpoint() {
     RT.lock().unwrap().breakpoint();
 }
 
-/// This statement is inserted by the compiler as debug information.
+/// Calls [Runtime::evaluated].
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_evaluated(info: *const u8) {
+pub extern "C" fn rt_evaluated(info: *const u8, optimized: i32) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(info as *const i8) };
     if let Ok(info) = c_str.to_str() {
-        RT.lock().unwrap().evaluated(info);
+        RT.lock().unwrap().evaluated(info, optimized == 1);
     } else {
         log_error("Error in rt_import: invalid string");
     }

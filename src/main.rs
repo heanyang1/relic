@@ -7,7 +7,16 @@ use std::{
 };
 
 use relic::{
-    compile::{compile, CodeGen}, lexer::Lexer, logger::{log_error, set_log_level, unwrap_result, LogLevel}, node::Node, parser::{Parse, ParseError}, preprocess::PreProcess, rt_start, runtime::StackMachine, symbol::Symbol, RT
+    RT,
+    compile::{CodeGen, compile},
+    lexer::Lexer,
+    logger::{LogLevel, log_error, set_log_level, unwrap_result},
+    node::Node,
+    parser::{Parse, ParseError},
+    preprocess::PreProcess,
+    rt_start,
+    runtime::StackMachine,
+    symbol::Symbol,
 };
 
 use clap::{Parser, ValueEnum};
@@ -47,6 +56,10 @@ struct Cli {
     /// The package name must be a valid variable name.
     #[arg(short, long, value_name = "NAME")]
     package_name: Option<String>,
+
+    /// Whether to add debug information when compiling.
+    #[arg(short = 'g')]
+    debug_info: bool,
 }
 
 fn main() {
@@ -63,7 +76,7 @@ fn main() {
         Mode::Repl => {
             rt_start();
             if let Some(node) = input_node {
-                unwrap_result(node.jit_compile(), ());
+                unwrap_result(node.jit_compile(false), ());
                 let mut runtime = RT.lock().unwrap();
                 let index = runtime.pop();
                 println!("result: {}", runtime.display_node_idx(index))
@@ -95,7 +108,7 @@ fn main() {
                     }
                 };
                 node = unwrap_result(node.preprocess(&mut macros), Node::Symbol(Symbol::Nil));
-                unwrap_result(node.jit_compile(), ());
+                unwrap_result(node.jit_compile(false), ());
                 let mut runtime = RT.lock().unwrap();
                 let index = runtime.pop();
                 println!("result: {}", runtime.display_node_idx(index))
@@ -108,7 +121,7 @@ fn main() {
             };
             match input_node {
                 Some(node) => {
-                    unwrap_result(compile(&node, &mut codegen), ());
+                    unwrap_result(compile(&node, &mut codegen, cli.debug_info), ());
                     match cli.output_path {
                         Some(output_path) => {
                             let mut output_file = File::create(output_path).unwrap();
@@ -134,7 +147,7 @@ fn main() {
                     let mut runtime = RT.lock().unwrap();
                     runtime.begin_debug();
                 }
-                unwrap_result(node.jit_compile(), ());
+                unwrap_result(node.jit_compile(true), ());
                 let mut runtime = RT.lock().unwrap();
                 let index = runtime.pop();
                 println!("result: {}", runtime.display_node_idx(index))

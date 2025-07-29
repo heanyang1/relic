@@ -14,27 +14,28 @@ macro_rules! assert_eval_node {
         let mut tokens = Lexer::new($code);
         let mut node = Node::parse(&mut tokens).unwrap();
         node = node.preprocess(&mut macros).unwrap();
-        node.jit_compile().unwrap();
+
+        node.jit_compile(true).unwrap();
         let expected = {
             let mut runtime = RT.lock().unwrap();
             runtime.new_node_with_gc($expected)
         };
         let index = rt_pop();
-        println!("{}", RT.lock().unwrap().display_node_idx(index));
-        assert!(RT.lock().unwrap().node_eq(index, expected))
+        assert!(RT.lock().unwrap().node_eq(index, expected));
     }};
 
     ($code:expr, $expected:expr, $macros:expr) => {{
         let mut tokens = Lexer::new($code);
         let mut node = Node::parse(&mut tokens).unwrap();
         node = node.preprocess(&mut $macros).unwrap();
-        node.jit_compile().unwrap();
+
+        node.jit_compile(true).unwrap();
         let expected = {
             let mut runtime = RT.lock().unwrap();
             runtime.new_node_with_gc($expected)
         };
         let index = rt_pop();
-        assert!(RT.lock().unwrap().node_eq(index, expected))
+        assert!(RT.lock().unwrap().node_eq(index, expected));
     }};
 }
 
@@ -44,17 +45,19 @@ macro_rules! assert_eval_text {
         let mut tokens = Lexer::new($code);
         let mut node = Node::parse(&mut tokens).unwrap();
         node = node.preprocess(&mut macros).unwrap();
-        node.jit_compile().unwrap();
+
+        node.jit_compile(true).unwrap();
         let index = rt_pop();
         let actual = RT.lock().unwrap().display_node_idx(index);
-        assert_eq!(actual, $expected)
+        assert_eq!(actual, $expected);
     }};
 
     ($code:expr, $expected:expr, $macros:expr) => {{
         let mut tokens = Lexer::new($code);
         let mut node = Node::parse(&mut tokens).unwrap();
         node = node.preprocess(&mut $macros).unwrap();
-        node.jit_compile().unwrap();
+
+        node.jit_compile(true).unwrap();
         let index = rt_pop();
         let actual = RT.lock().unwrap().display_node_idx(index);
         assert_eq!(actual, $expected)
@@ -423,14 +426,14 @@ fn test_fib() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_node!("(fib 9)", RuntimeNode::Number(Number::Int(55)));
-    // assert_eval!_eq!(
-    //     "(map (lambda (x) (+ x 1)) '(0 1 2 3 4 5 6 7 8 9))",
-    //     "(1 2 3 4 5 6 7 8 9 10)",
-    // );
-    // assert_eval!_eq!(
-    //     "(map fib '(0 1 2 3 4 5 6 7 8 9))",
-    //     "(1 1 2 3 5 8 13 21 34 55)",
-    // );
+    assert_eval_text!(
+        "(map (lambda (x) (+ x 1)) '(0 1 2 3 4 5 6 7 8 9))",
+        "(1 2 3 4 5 6 7 8 9 10)"
+    );
+    assert_eval_text!(
+        "(map fib '(0 1 2 3 4 5 6 7 8 9))",
+        "(1 1 2 3 5 8 13 21 34 55)"
+    );
     let mut runtime = RT.lock().unwrap();
     runtime.clear();
 }

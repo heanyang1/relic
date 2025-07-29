@@ -85,7 +85,7 @@ macro_rules! return_nil {
 }
 
 macro_rules! set_family {
-    ($func_name:expr, $target:expr, $cdr:expr, $codegen:expr, $ctx:expr) => {{
+    ($func_name:expr, $target:expr, $cdr:expr, $codegen:expr, $ctx:expr, $dbg_info:expr) => {{
         let params = get_n_params($cdr.clone(), 2)?;
         let sym = &params[0];
         let expr = &params[1];
@@ -96,6 +96,7 @@ macro_rules! set_family {
                 drop_env: false,
                 drop_ret: false,
             },
+            $dbg_info,
         )?;
         $codegen.append_code(&format!("rt_{}({}, rt_pop());", $func_name, $target(name)));
         return_nil!($codegen, $ctx);
@@ -157,13 +158,15 @@ struct ContexInfo {
     drop_ret: bool,
 }
 
-pub fn compile(node: &Node, codegen: &mut CodeGen) -> Result<(), String> {
+/// Calls [Node::compile] with no optimization at the top level.
+pub fn compile(node: &Node, codegen: &mut CodeGen, dbg_info: bool) -> Result<(), String> {
     node.compile(
         codegen,
         ContexInfo {
             drop_env: false,
             drop_ret: false,
         },
+        dbg_info,
     )
 }
 
@@ -171,13 +174,22 @@ pub fn compile(node: &Node, codegen: &mut CodeGen) -> Result<(), String> {
 trait Compile {
     /// Compile the object.
     ///
-    /// The semantics of the compiled code is to evaluate this object
-    /// and push its value to the stack.
-    fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo) -> Result<(), String>;
+    /// The semantics of the compiled code is to evaluate this object and push
+    /// its value to the stack.
+    ///
+    /// If `dbg_info` is true, a special statement will be inserted at the end
+    /// of each evaluation to support `n` command in the debugger.
+    fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo, dbg_info: bool)
+    -> Result<(), String>;
 }
 
 impl Compile for Symbol {
-    fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo) -> Result<(), String> {
+    fn compile(
+        &self,
+        codegen: &mut CodeGen,
+        ctx: ContexInfo,
+        _dbg_info: bool,
+    ) -> Result<(), String> {
         if !ctx.drop_ret {
             let code = match self {
                 Symbol::User(name) => {
@@ -194,7 +206,12 @@ impl Compile for Symbol {
 }
 
 impl Compile for Node {
-    fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo) -> Result<(), String> {
+    fn compile(
+        &self,
+        codegen: &mut CodeGen,
+        ctx: ContexInfo,
+        dbg_info: bool,
+    ) -> Result<(), String> {
         //println!("ctx:{ctx:?}, self: {self}");
 
         match self {
@@ -247,7 +264,7 @@ impl Compile for Node {
                                 drop_env: true,
                                 drop_ret: false,
                             };
-                            body.compile(&mut lambda_gen, ctx)?;
+                            body.compile(&mut lambda_gen, ctx, dbg_info)?;
                             codegen.merge(lambda_gen);
 
                             // Write the code that creates the closure.
@@ -268,6 +285,7 @@ impl Compile for Node {
                                 drop_env: ctx.drop_env,
                                 drop_ret: false,
                             },
+                            dbg_info,
                         )?;
                         codegen.append_code(
                             r#"
@@ -303,6 +321,7 @@ fflush(NULL);"#,
                                     drop_env: false,
                                     drop_ret: false,
                                 },
+                                dbg_info,
                             )?;
                             codegen.append_code(&format!("rt_define(\"{name}\", rt_pop());"));
                             return_nil!(codegen, ctx);
@@ -315,7 +334,14 @@ fflush(NULL);"#,
                         }
                     }
                     SpecialForm::Set => {
-                        set_family!("set", |name| { format!("\"{name}\"") }, cdr, codegen, ctx)
+                        set_family!(
+                            "set",
+                            |name| { format!("\"{name}\"") },
+                            cdr,
+                            codegen,
+                            ctx,
+                            dbg_info
+                        )
                     }
                     SpecialForm::SetCar => {
                         set_family!(
@@ -323,7 +349,8 @@ fflush(NULL);"#,
                             |name| { format!("rt_get(\"{name}\")") },
                             cdr,
                             codegen,
-                            ctx
+                            ctx,
+                            dbg_info
                         )
                     }
                     SpecialForm::SetCdr => {
@@ -332,7 +359,8 @@ fflush(NULL);"#,
                             |name| { format!("rt_get(\"{name}\")") },
                             cdr,
                             codegen,
-                            ctx
+                            ctx,
+                            dbg_info
                         )
                     }
                     SpecialForm::If => {
@@ -345,11 +373,12 @@ fflush(NULL);"#,
                                 drop_env: false,
                                 drop_ret: false,
                             },
+                            dbg_info,
                         )?;
                         codegen.append_code("if (rt_get_bool(rt_pop()) > 0) {");
-                        params[1].borrow().compile(codegen, ctx)?;
+                        params[1].borrow().compile(codegen, ctx, dbg_info)?;
                         codegen.append_code("} else {");
-                        params[2].borrow().compile(codegen, ctx)?;
+                        params[2].borrow().compile(codegen, ctx, dbg_info)?;
                         codegen.append_code("}");
                         Ok(())
                     }
@@ -373,9 +402,14 @@ fflush(NULL);"#,
                                     drop_env: false,
                                     drop_ret: true,
                                 },
+                                dbg_info,
                             )?;
                         }
-                        operands.last().unwrap().borrow().compile(codegen, ctx)?;
+                        operands
+                            .last()
+                            .unwrap()
+                            .borrow()
+                            .compile(codegen, ctx, dbg_info)?;
                         Ok(())
                     }
                     SpecialForm::Import => {
@@ -399,6 +433,7 @@ fflush(NULL);"#,
                                 drop_env: false,
                                 drop_ret: false,
                             },
+                            dbg_info,
                         )?;
                     }
 
@@ -408,17 +443,21 @@ fflush(NULL);"#,
                             drop_env: false,
                             drop_ret: false,
                         },
+                        dbg_info,
                     )?;
 
                     let call_closure = if ctx.drop_env {
-                        format!(r#"
+                        format!(
+                            r#"
 rt_add_root("__closure", rt_pop());
 rt_prepare_args(rt_get_root("__closure"), {len_operands});
 c_func func = rt_get_c_func(rt_remove_root("__closure"));
 func();
-"#)
+"#
+                        )
                     } else {
-                        format!(r#"
+                        format!(
+                            r#"
 rt_add_root("__old_env", rt_current_env());
 rt_add_root("__closure", rt_pop());
 rt_prepare_args(rt_get_root("__closure"), {len_operands});
@@ -427,7 +466,8 @@ c_func func = rt_get_c_func(rt_remove_root("__closure"));
 func();
 rt_swap();
 rt_move_to_env(rt_pop());
-"#)
+"#
+                        )
                     };
 
                     codegen.append_code(&format!(
@@ -447,9 +487,15 @@ if (rt_is_symbol(rt_top())) {{
                 }
             },
             Node::SpecialForm(_) => unreachable!(),
-            Node::Symbol(sym) => sym.compile(codegen, ctx),
+            Node::Symbol(sym) => sym.compile(codegen, ctx, dbg_info),
         }?;
-        // codegen.append_code(&format!("rt_evaluated(\"{}\");", self));
+        if dbg_info {
+            codegen.append_code(&format!(
+                "rt_evaluated(\"{}\", {});",
+                self,
+                if ctx.drop_ret { 1 } else { 0 }
+            ));
+        }
         Ok(())
     }
 }

@@ -50,7 +50,7 @@ typedef void (*c_func)();
 extern c_func rt_get_c_func(size_t cid);
 
 // Debug information
-extern void rt_evaluated(const char *name);
+extern void rt_evaluated(const char *name, int optimized);
 extern void rt_breakpoint();
 
 // Root registers
