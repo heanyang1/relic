@@ -10,137 +10,16 @@ use relic::{
     RT,
     compile::{CodeGen, Compile},
     lexer::Lexer,
-    logger::{log_error, unwrap_result},
+    logger::{LogLevel, log_error, set_log_level, unwrap_result},
     node::Node,
     parser::{Parse, ParseError},
     preprocess::PreProcess,
+    rt_start,
     runtime::StackMachine,
     symbol::Symbol,
 };
 
 use clap::{Parser, ValueEnum};
-
-// /// All debug commands.
-// #[derive(Debug, PartialEq, Eq, Clone)]
-// pub enum DbgCmd {
-//     /// Steps through current evaluation.
-//     Step,
-//     /// Continue. The debugger won't stop until the evaluation is over or until
-//     /// it hits a breakpoint.
-//     Continue,
-//     /// Print the value of expression in current environment.
-//     Print(String),
-//     /// Print the environment graph in DOT code.
-//     Graph,
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct DbgResult {
-//     /// Current evaluation result.
-//     node: Rc<RefCell<Node>>,
-//     /// Whether the step evaluation is on.
-//     step_is_on: bool,
-// }
-
-// impl Default for DbgResult {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-
-// impl DbgResult {
-//     pub fn new() -> Self {
-//         DbgResult {
-//             node: nil!().into(),
-//             step_is_on: false,
-//         }
-//     }
-//     pub fn poll_cmd(&mut self, env: Rc<RefCell<NodeEnv>>) {
-//         loop {
-//             match get_cmd() {
-//                 DbgCmd::Step => {
-//                     self.step_is_on = true;
-//                     break;
-//                 }
-//                 DbgCmd::Continue => {
-//                     self.step_is_on = false;
-//                     break;
-//                 }
-//                 DbgCmd::Graph => {
-//                     let state = PrintState::new(env.clone(), "state".to_string());
-//                     println!("{state}");
-//                 }
-//                 DbgCmd::Print(var) => {
-//                     match env.borrow().get(&var, &()) {
-//                         Some(val) => println!("{} : {}", var, val.borrow()),
-//                         None => println!("Variable {var} not found"),
-//                     };
-//                 }
-//             };
-//         }
-//     }
-// }
-
-// impl EvalResult for DbgResult {
-//     fn bind_display(self, output: &str) -> Self {
-//         println!("[stdout] {output}");
-//         self
-//     }
-//     fn bind_graph(self, env: Rc<RefCell<NodeEnv>>) -> Self {
-//         let state = PrintState::new(env.clone(), "state".to_string());
-//         println!("[graph] {state}");
-//         self
-//     }
-//     fn bind_eval(
-//         mut self,
-//         src: Rc<RefCell<Node>>,
-//         dst: Rc<RefCell<Node>>,
-//         env: Rc<RefCell<NodeEnv>>,
-//     ) -> Self {
-//         if self.step_is_on {
-//             println!("steps: {} |-> {}", src.borrow(), dst.borrow());
-//             self.poll_cmd(env);
-//         }
-//         self
-//     }
-//     fn bind_break(mut self, env: Rc<RefCell<NodeEnv>>) -> Self {
-//         println!("hit a breakpoint");
-//         self.poll_cmd(env);
-//         self
-//     }
-//     fn bind_node(mut self, node: Rc<RefCell<Node>>) -> Self {
-//         self.node = node;
-//         self
-//     }
-//     fn node(&self) -> Rc<RefCell<Node>> {
-//         self.node.clone()
-//     }
-// }
-
-// fn get_cmd() -> DbgCmd {
-//     loop {
-//         print!("dbg> ");
-//         io::stdout().flush().unwrap();
-//         let mut buf = String::new();
-//         unwrap_result(io::stdin().read_line(&mut buf), 0);
-//         match buf.as_str().trim_end() {
-//             "s" | "step" => return DbgCmd::Step,
-//             "c" | "continue" => return DbgCmd::Continue,
-//             "g" | "graph" => return DbgCmd::Graph,
-//             input => {
-//                 match input
-//                     .strip_prefix("p ")
-//                     .or_else(|| input.strip_prefix("print "))
-//                 {
-//                     Some(var) => return DbgCmd::Print(var.to_string()),
-//                     None => log_error(
-//                         "Wrong input. Available commands: (s)tep, (c)ontinue, (g)raph, (p)rint. Press C-c to quit.",
-//                     ),
-//                 }
-//             }
-//         };
-//     }
-// }
 
 #[derive(Debug, Clone, ValueEnum)]
 enum Mode {
@@ -191,6 +70,7 @@ fn main() {
 
     match cli.mode {
         Mode::Repl => {
+            rt_start();
             if let Some(node) = input_node {
                 unwrap_result(node.jit_compile(), ());
                 let mut runtime = RT.lock().unwrap();
@@ -219,7 +99,7 @@ fn main() {
                     }
                     Err(ParseError::EOF) => continue,
                     Err(ParseError::SyntaxError(msg)) => {
-                        log_error(&msg);
+                        log_error(msg);
                         continue;
                     }
                 };
@@ -255,23 +135,22 @@ fn main() {
                 }
             }
         }
-        Mode::Debug => {
-            todo!()
-            // let mut result = DbgResult::new();
-            // let node = match input_node {
-            //     Some(node) => node,
-            //     None => {
-            //         eprintln!("No files to debug");
-            //         return;
-            //     }
-            // };
-
-            // // stop before debugging
-            // result.poll_cmd(env.clone());
-            // result = unwrap_result(node.eval(env.clone(), result.clone()), result);
-            // if *result.node().borrow() != nil!() {
-            //     println!("{}", result.node().borrow());
-            // }
-        }
+        Mode::Debug => match input_node {
+            Some(node) => {
+                rt_start();
+                set_log_level(LogLevel::Debug);
+                {
+                    let mut runtime = RT.lock().unwrap();
+                    runtime.begin_debug();
+                }
+                unwrap_result(node.jit_compile(), ());
+                let mut runtime = RT.lock().unwrap();
+                let index = runtime.pop();
+                println!("result: {}", runtime.display_node_idx(index))
+            }
+            None => {
+                eprintln!("No files to compile");
+            }
+        },
     }
 }

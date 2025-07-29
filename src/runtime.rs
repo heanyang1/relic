@@ -1,19 +1,25 @@
 //! The runtime module.
 
 use std::{
-    cell::RefCell, collections::HashMap, fmt::Display, mem::swap, rc::Rc, result::Result, vec::Vec,
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Display,
+    io::{self, Write},
+    mem::swap,
+    rc::Rc,
+    result::Result,
+    vec::Vec,
 };
 
 use crate::{
     env::Env,
     lexer::{Lexer, Number, TokenType},
-    logger::{log_debug, log_error},
+    logger::{log_debug, log_error, unwrap_result},
     node::Node,
     symbol::Symbol,
     util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
 use libloading::Library;
 
 /// Closures.
@@ -67,9 +73,6 @@ impl Closure {
 
 // Environment manipulation.
 impl Env<String, usize, Runtime> for usize {
-    fn top(runtime: &mut Runtime) -> Self {
-        runtime.top_env()
-    }
     fn get_cur(&self, key: &String, runtime: &Runtime) -> Option<usize> {
         runtime.get_cur_env(*self, key)
     }
@@ -118,6 +121,17 @@ pub enum RuntimeNode {
     BrokenHeart(usize),
 }
 
+/// Whether the runtime should enter the debugger.
+#[derive(Debug, PartialEq, PartialOrd)]
+enum DbgState {
+    /// Does not enter the debugger at all.
+    Off = 0,
+    /// Enter debugger when hitting a breakpoint.
+    Normal = 1,
+    /// Enter debugger after evaluating an expression.
+    Step = 2,
+}
+
 /// The runtime.
 ///
 /// To simplify bindings and avoid ownership issues, users can only get the
@@ -125,6 +139,8 @@ pub enum RuntimeNode {
 /// the content of the node through index.
 #[derive(Debug)]
 pub struct Runtime {
+    /// Whether the runtime should enter the debugger.
+    dbg_state: DbgState,
     /// The stack. Its content is the index to the element in the GC area.
     ///
     /// The stack element won't be GCed.
@@ -142,7 +158,6 @@ pub struct Runtime {
     ///
     /// This field is not used, but we need to keep it so that we can use the
     /// C function pointers inside the shared library.
-    #[cfg(not(target_arch = "wasm32"))]
     packages: HashMap<String, Library>,
 }
 
@@ -411,7 +426,7 @@ impl StackMachine<usize> for Runtime {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+// Package manipulation
 impl Runtime {
     pub fn add_package(&mut self, name: String, package: Library) {
         assert!(self.packages.insert(name, package).is_none());
@@ -426,116 +441,10 @@ impl Runtime {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+// Node creation and GC
 impl Runtime {
-    pub fn add_package(&mut self, _name: String, _package: ()) {
-        // No-op for WebAssembly
-    }
-
-    pub fn has_package(&self, _name: &str) -> bool {
-        false
-    }
-}
-
-impl Runtime {
-    pub fn node_vec_from_stack(&mut self, nargs: usize) -> Vec<RuntimeNode> {
-        let mut operands = vec![];
-        for _ in 0..nargs {
-            let idx = self.pop();
-            let node = self.get_node(true, idx).clone();
-            operands.push(node);
-        }
-        operands
-    }
-    pub fn zip_stack_nodes(&mut self, nargs: usize) {
-        // (top) a1 a2 ... an -> (top) an ... a2 a1
-        let mut nodes = Vec::with_capacity(nargs);
-        for _ in 0..nargs {
-            nodes.push(self.pop());
-        }
-        for node in nodes.into_iter() {
-            self.push(node);
-        }
-
-        Symbol::Nil.load_to(self).unwrap();
-        for _ in 0..nargs {
-            // (top) (a_{k+1} ... a_n) a_k a_{k-1} ... a_2 a_1
-            self.swap();
-            // (top) a_k (a_{k+1} ... a_n) a_{k-1} ... a_2 a_1
-            self.new_pair();
-            // (top) (a_k a_{k+1} ... a_n) a_{k-1} ... a_2 a_1
-        }
-    }
-    fn pop_as_node(&mut self) -> RuntimeNode {
-        let index = self.pop();
-        self.get_node(true, index).clone()
-    }
-
-    fn get_area(&self, active: bool) -> &Vec<RuntimeNode> {
-        if active {
-            self.areas.0.as_ref()
-        } else {
-            self.areas.1.as_ref()
-        }
-    }
-    fn get_area_mut(&mut self, active: bool) -> &mut Vec<RuntimeNode> {
-        if active {
-            self.areas.0.as_mut()
-        } else {
-            self.areas.1.as_mut()
-        }
-    }
-
-    pub fn to_node(
-        &self,
-        index: usize,
-        visited: &mut HashMap<usize, Rc<RefCell<Node>>>,
-    ) -> Rc<RefCell<Node>> {
-        if visited.contains_key(&index) {
-            return visited.get(&index).unwrap().clone();
-        }
-        match self.get_node(true, index) {
-            RuntimeNode::BrokenHeart(dst) => {
-                Node::Symbol(Symbol::User(format!("<BrokenHeart {dst}>"))).into()
-            }
-            RuntimeNode::Closure(Closure { env, nargs, .. }) => Node::Symbol(Symbol::User(
-                format!("<Closure env: {env}, nargs: {nargs}>"),
-            ))
-            .into(),
-            RuntimeNode::Environment(name, map, outer) => {
-                let mut result = format!("<Env {name}: ");
-                for (k, v) in map {
-                    result += &format!("{k}={v}, ");
-                }
-                if let Some(env) = outer {
-                    result += &format!("; outer = {env}");
-                }
-                Node::Symbol(Symbol::User(format!("{result}>"))).into()
-            }
-            RuntimeNode::Number(val) => Node::Number(val.clone()).into(),
-            RuntimeNode::Pair(car, cdr) => {
-                let pair = Rc::new(RefCell::new(Node::Pair(
-                    Node::Symbol(Symbol::Nil).into(),
-                    Node::Symbol(Symbol::Nil).into(),
-                )));
-                visited.insert(index, pair.clone());
-                let car_node = self.to_node(*car, visited);
-                let cdr_node = self.to_node(*cdr, visited);
-                if let Node::Pair(car, cdr) = &mut *pair.borrow_mut() {
-                    *car = car_node;
-                    *cdr = cdr_node;
-                } else {
-                    unreachable!()
-                }
-                pair
-            }
-            RuntimeNode::Symbol(val) => Node::Symbol(val.clone()).into(),
-        }
-    }
-
     // GC and maintain the fields of `gc_area`.
     pub fn gc(&mut self) {
-        log_debug(&format!("Before GC: {self}"));
         let old_free = self.get_free();
         self.areas.1.clear();
 
@@ -557,7 +466,6 @@ impl Runtime {
             // GC doesn't reclaim any memory. Increase the area size.
             self.size *= 2;
         }
-        log_debug(&format!("After GC: {self}"));
     }
     // Try to call `gc()`.
     // Doesn't perform GC if there's enough memory to alloc a pair.
@@ -648,11 +556,71 @@ impl Runtime {
     }
 }
 
-// Create C bindings for these functions.
+// Debugger
 impl Runtime {
-    #[cfg(not(target_arch = "wasm32"))]
+    fn get_cmd(&mut self) {
+        assert!(self.dbg_state >= DbgState::Normal);
+        loop {
+            print!("dbg> ");
+            io::stdout().flush().unwrap();
+            let mut buf = String::new();
+            unwrap_result(io::stdin().read_line(&mut buf), 0);
+            match buf.as_str().trim_end() {
+                "s" | "step" => {
+                    self.dbg_state = DbgState::Step;
+                    return;
+                }
+                "c" | "continue" => {
+                    self.dbg_state = DbgState::Normal;
+                    return;
+                }
+                "r" | "runtime" => log_debug(format!("{self}")),
+                input => {
+                    match input
+                        .strip_prefix("p ")
+                        .or_else(|| input.strip_prefix("print "))
+                    {
+                        Some(var) => {
+                            let env = self.current_env();
+                            let idx = env.get(&var.to_string(), self);
+                            match idx {
+                                Some(idx) => {
+                                    log_debug(format!("{var} = {}", self.display_node_idx(idx)))
+                                }
+                                None => log_error(format!("variable {var} not found")),
+                            };
+                        }
+                        None => log_error(
+                            "Wrong input. Available commands: (s)tep, (c)ontinue, (p)rint, (r)untime. Press C-c to quit.",
+                        ),
+                    }
+                }
+            };
+        }
+    }
+    pub fn breakpoint(&mut self) {
+        if self.dbg_state >= DbgState::Normal {
+            log_debug(format!("Hit a breakpoint"));
+            self.get_cmd()
+        }
+    }
+    pub fn evaluated(&mut self, info: &str) {
+        if self.dbg_state >= DbgState::Step {
+            let result = self.top();
+            log_debug(format!("{} -> {}", info, self.display_node_idx(result)));
+            self.get_cmd()
+        }
+    }
+    pub fn begin_debug(&mut self) {
+        self.dbg_state = DbgState::Step;
+    }
+}
+
+// New and delete
+impl Runtime {
     pub fn new(size: usize) -> Runtime {
         Runtime {
+            dbg_state: DbgState::Off,
             stack: vec![],
             areas: (Vec::with_capacity(size), Vec::with_capacity(size)),
             size,
@@ -661,16 +629,17 @@ impl Runtime {
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn new(size: usize) -> Runtime {
-        Runtime {
-            stack: vec![],
-            areas: (Vec::with_capacity(size), Vec::with_capacity(size)),
-            size,
-            roots: HashMap::new(),
-        }
+    pub fn clear(&mut self) {
+        self.roots.clear();
+        self.stack.clear();
+        self.packages.clear();
+        self.areas.0.clear();
+        self.areas.1.clear();
     }
+}
 
+// Manipulate root nodes
+impl Runtime {
     pub fn add_root(&mut self, name: String, value: usize) {
         assert!(!self.roots.contains_key(&name));
         self.roots.insert(name, value);
@@ -685,6 +654,24 @@ impl Runtime {
     pub fn get_root(&self, name: &str) -> usize {
         *self.roots.get(name).unwrap()
     }
+}
+
+// Getter
+impl Runtime {
+    fn get_area(&self, active: bool) -> &Vec<RuntimeNode> {
+        if active {
+            self.areas.0.as_ref()
+        } else {
+            self.areas.1.as_ref()
+        }
+    }
+    fn get_area_mut(&mut self, active: bool) -> &mut Vec<RuntimeNode> {
+        if active {
+            self.areas.0.as_mut()
+        } else {
+            self.areas.1.as_mut()
+        }
+    }
 
     pub fn get_free(&self) -> usize {
         self.get_area(true).len()
@@ -692,7 +679,13 @@ impl Runtime {
     pub fn get_size(&self) -> usize {
         self.size
     }
+    pub fn get_node(&self, active: bool, index: usize) -> &RuntimeNode {
+        self.get_area(active).get(index).unwrap()
+    }
 
+    pub fn get_node_mut(&mut self, active: bool, index: usize) -> &mut RuntimeNode {
+        self.get_area_mut(active).get_mut(index).unwrap()
+    }
     pub fn get_number(&self, index: usize) -> Result<Number, String> {
         if let RuntimeNode::Number(val) = self.get_node(true, index) {
             Ok(val.clone())
@@ -712,6 +705,157 @@ impl Runtime {
             Ok((*car, *cdr))
         } else {
             Err(format!("{} is not a pair", self.display_node_idx(index)))
+        }
+    }
+}
+
+// Environment manipulation
+impl Runtime {
+    pub fn new_env(&mut self, name: String, mut outer: usize) -> usize {
+        self.push(outer);
+
+        self.try_gc();
+
+        outer = self.pop();
+        self.new_node(RuntimeNode::Environment(name, HashMap::new(), Some(outer)))
+    }
+
+    pub fn current_env(&self) -> usize {
+        let env_name = "__cur_env";
+        *self.roots.get(env_name).unwrap()
+    }
+
+    pub fn top_env(&mut self) -> usize {
+        let cur_name = "__cur_env";
+        let top_name = "__top_env";
+        assert!(!self.roots.contains_key(cur_name));
+        assert!(!self.roots.contains_key(top_name));
+        let node = self.new_node_with_gc(RuntimeNode::Environment(
+            "top".to_string(),
+            HashMap::new(),
+            None,
+        ));
+        self.roots.insert(top_name.to_string(), node);
+        self.roots.insert(cur_name.to_string(), node);
+        node
+    }
+
+    pub fn get_cur_env(&self, idx: usize, key: &String) -> Option<usize> {
+        if let RuntimeNode::Environment(_, map, _) = self.get_node(true, idx) {
+            map.get(key).copied()
+        } else {
+            log_error(format!(
+                "Expect an environment, found {}",
+                self.display_node_idx(idx),
+            ));
+            None
+        }
+    }
+
+    pub fn move_to_env(&mut self, env: usize) {
+        if let RuntimeNode::Environment(_, _, _) = self.get_node(true, env) {
+            self.set_root("__cur_env".to_string(), env);
+        } else {
+            panic!("Not an environment")
+        }
+    }
+
+    pub fn get_outer_env(&self, idx: usize) -> Option<usize> {
+        if let RuntimeNode::Environment(_, _, outer) = self.get_node(true, idx) {
+            *outer
+        } else {
+            panic!("Not an environment")
+        }
+    }
+
+    pub fn insert_cur_env(&mut self, idx: usize, key: &String, value: usize) {
+        if let RuntimeNode::Environment(_, map, _) = self.get_node_mut(true, idx) {
+            map.insert(key.to_string(), value);
+        } else {
+            panic!("Not an environment")
+        }
+    }
+}
+
+// Misc
+impl Runtime {
+    pub fn node_vec_from_stack(&mut self, nargs: usize) -> Vec<RuntimeNode> {
+        let mut operands = vec![];
+        for _ in 0..nargs {
+            let idx = self.pop();
+            let node = self.get_node(true, idx).clone();
+            operands.push(node);
+        }
+        operands
+    }
+    pub fn zip_stack_nodes(&mut self, nargs: usize) {
+        // (top) a1 a2 ... an -> (top) an ... a2 a1
+        let mut nodes = Vec::with_capacity(nargs);
+        for _ in 0..nargs {
+            nodes.push(self.pop());
+        }
+        for node in nodes.into_iter() {
+            self.push(node);
+        }
+
+        Symbol::Nil.load_to(self).unwrap();
+        for _ in 0..nargs {
+            // (top) (a_{k+1} ... a_n) a_k a_{k-1} ... a_2 a_1
+            self.swap();
+            // (top) a_k (a_{k+1} ... a_n) a_{k-1} ... a_2 a_1
+            self.new_pair();
+            // (top) (a_k a_{k+1} ... a_n) a_{k-1} ... a_2 a_1
+        }
+    }
+    fn pop_as_node(&mut self) -> RuntimeNode {
+        let index = self.pop();
+        self.get_node(true, index).clone()
+    }
+
+    pub fn to_node(
+        &self,
+        index: usize,
+        visited: &mut HashMap<usize, Rc<RefCell<Node>>>,
+    ) -> Rc<RefCell<Node>> {
+        if visited.contains_key(&index) {
+            return visited.get(&index).unwrap().clone();
+        }
+        match self.get_node(true, index) {
+            RuntimeNode::BrokenHeart(dst) => {
+                Node::Symbol(Symbol::User(format!("<BrokenHeart {dst}>"))).into()
+            }
+            RuntimeNode::Closure(Closure { env, nargs, .. }) => Node::Symbol(Symbol::User(
+                format!("<Closure env: {env}, nargs: {nargs}>"),
+            ))
+            .into(),
+            RuntimeNode::Environment(name, map, outer) => {
+                let mut result = format!("<Env {name}: ");
+                for (k, v) in map {
+                    result += &format!("{k}={v}, ");
+                }
+                if let Some(env) = outer {
+                    result += &format!("; outer = {env}");
+                }
+                Node::Symbol(Symbol::User(format!("{result}>"))).into()
+            }
+            RuntimeNode::Number(val) => Node::Number(val.clone()).into(),
+            RuntimeNode::Pair(car, cdr) => {
+                let pair = Rc::new(RefCell::new(Node::Pair(
+                    Node::Symbol(Symbol::Nil).into(),
+                    Node::Symbol(Symbol::Nil).into(),
+                )));
+                visited.insert(index, pair.clone());
+                let car_node = self.to_node(*car, visited);
+                let cdr_node = self.to_node(*cdr, visited);
+                if let Node::Pair(car, cdr) = &mut *pair.borrow_mut() {
+                    *car = car_node;
+                    *cdr = cdr_node;
+                } else {
+                    unreachable!()
+                }
+                pair
+            }
+            RuntimeNode::Symbol(val) => Node::Symbol(val.clone()).into(),
         }
     }
 
@@ -757,100 +901,6 @@ impl Runtime {
         let cdr = self.pop();
         let pair = self.new_node(RuntimeNode::Pair(car, cdr));
         self.push(pair);
-    }
-
-    pub fn new_env(&mut self, name: String, mut outer: usize) -> usize {
-        self.push(outer);
-
-        self.try_gc();
-
-        outer = self.pop();
-        self.new_node(RuntimeNode::Environment(name, HashMap::new(), Some(outer)))
-    }
-
-    pub fn current_env(&self) -> usize {
-        let env_name = "__cur_env";
-        *self.roots.get(env_name).unwrap()
-    }
-}
-
-// These functions are supposed to be used by other objects in the crate.
-// DO NOT create C bindings for them although they are public.
-impl Runtime {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn clear(&mut self) {
-        self.roots.clear();
-        self.stack.clear();
-        self.packages.clear();
-        self.areas.0.clear();
-        self.areas.1.clear();
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn clear(&mut self) {
-        self.roots.clear();
-        self.stack.clear();
-        self.areas.0.clear();
-        self.areas.1.clear();
-    }
-
-    pub fn get_node(&self, active: bool, index: usize) -> &RuntimeNode {
-        self.get_area(active).get(index).unwrap()
-    }
-
-    pub fn get_node_mut(&mut self, active: bool, index: usize) -> &mut RuntimeNode {
-        self.get_area_mut(active).get_mut(index).unwrap()
-    }
-
-    pub fn top_env(&mut self) -> usize {
-        let cur_name = "__cur_env";
-        let top_name = "__top_env";
-        assert!(!self.roots.contains_key(cur_name));
-        assert!(!self.roots.contains_key(top_name));
-        let node = self.new_node_with_gc(RuntimeNode::Environment(
-            "top".to_string(),
-            HashMap::new(),
-            None,
-        ));
-        self.roots.insert(top_name.to_string(), node);
-        self.roots.insert(cur_name.to_string(), node);
-        node
-    }
-
-    pub fn get_cur_env(&self, idx: usize, key: &String) -> Option<usize> {
-        if let RuntimeNode::Environment(_, map, _) = self.get_node(true, idx) {
-            map.get(key).copied()
-        } else {
-            log_error(&format!(
-                "Expect an environment, found {}",
-                self.display_node_idx(idx),
-            ));
-            None
-        }
-    }
-
-    pub fn move_to_env(&mut self, env: usize) {
-        if let RuntimeNode::Environment(_, _, _) = self.get_node(true, env) {
-            self.set_root("__cur_env".to_string(), env);
-        } else {
-            panic!("Not an environment")
-        }
-    }
-
-    pub fn get_outer_env(&self, idx: usize) -> Option<usize> {
-        if let RuntimeNode::Environment(_, _, outer) = self.get_node(true, idx) {
-            *outer
-        } else {
-            panic!("Not an environment")
-        }
-    }
-
-    pub fn insert_cur_env(&mut self, idx: usize, key: &String, value: usize) {
-        if let RuntimeNode::Environment(_, map, _) = self.get_node_mut(true, idx) {
-            map.insert(key.to_string(), value);
-        } else {
-            panic!("Not an environment")
-        }
     }
 
     pub fn node_eq(&self, a: usize, b: usize) -> bool {

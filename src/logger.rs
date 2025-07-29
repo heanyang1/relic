@@ -8,7 +8,7 @@ use std::{
 use colored::Colorize;
 
 #[derive(PartialEq, PartialOrd)]
-enum LogLevel {
+pub enum LogLevel {
     Debug = 0,
     Error = 1,
 }
@@ -39,17 +39,21 @@ impl Logger {
         Logger { level }
     }
 
+    fn set_log_level(&mut self, level: LogLevel) {
+        self.level = level;
+    }
+
     fn write(&mut self, msg: &str, color: &str) {
         println!("{}", msg.color(color))
     }
 
-    fn debug(&mut self, msg: &str) {
+    fn debug(&mut self, msg: String) {
         if self.level <= LogLevel::Debug {
             let message = format!("[DEBUG] {msg}");
             self.write(&message, "blue");
         }
     }
-    fn error(&mut self, msg: &str) {
+    fn error(&mut self, msg: String) {
         if self.level <= LogLevel::Error {
             let message = format!("[ERROR] {msg}");
             self.write(&message, "red");
@@ -59,11 +63,20 @@ impl Logger {
 
 pub static LOGGER: LazyLock<Mutex<Logger>> = LazyLock::new(|| Mutex::new(Logger::new()));
 
-pub fn log_debug(msg: &str) {
-    LOGGER.lock().unwrap().debug(msg);
+pub fn log_debug<T>(msg: T)
+where
+    T: ToString,
+{
+    LOGGER.lock().unwrap().debug(msg.to_string());
 }
-pub fn log_error(msg: &str) {
-    LOGGER.lock().unwrap().error(msg);
+pub fn log_error<T>(msg: T)
+where
+    T: ToString,
+{
+    LOGGER.lock().unwrap().error(msg.to_string());
+}
+pub fn set_log_level(level: LogLevel) {
+    LOGGER.lock().unwrap().set_log_level(level);
 }
 
 pub fn unwrap_result<T, E>(result: Result<T, E>, default: T) -> T
@@ -73,7 +86,7 @@ where
     match result {
         Ok(x) => x,
         Err(msg) => {
-            log_error(&msg.to_string());
+            log_error(msg.to_string());
             default
         }
     }

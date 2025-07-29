@@ -1,5 +1,5 @@
 pub mod compile;
-pub mod env;
+mod env;
 pub mod lexer;
 pub mod logger;
 pub mod node;
@@ -156,19 +156,6 @@ pub extern "C" fn rt_top() -> usize {
     rt.top()
 }
 
-/// Remove a root variable
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_remove_root(name: *const u8) -> usize {
-    let mut rt = RT.lock().unwrap();
-    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
-    if let Ok(name_str) = c_str.to_str() {
-        rt.remove_root(name_str)
-    } else {
-        log_error("Error in rt_remove_root: invalid string");
-        0
-    }
-}
-
 /// Display a node by index as string
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_display_node_idx(index: usize) -> *mut i8 {
@@ -185,7 +172,7 @@ pub extern "C" fn rt_apply(nargs: usize) -> usize {
     match rt.apply(nargs) {
         Ok(()) => 1,
         Err(e) => {
-            log_error(&format!("Error in rt_apply: {e}"));
+            log_error(format!("Error in rt_apply: {e}"));
             0
         }
     }
@@ -297,7 +284,7 @@ pub extern "C" fn rt_set_car(index: usize, target: usize) -> usize {
     match rt.set_car(true, index, target) {
         Ok(()) => index,
         Err(e) => {
-            log_error(&format!("Error in rt_set_car: {e}"));
+            log_error(format!("Error in rt_set_car: {e}"));
             0
         }
     }
@@ -310,7 +297,7 @@ pub extern "C" fn rt_set_cdr(index: usize, target: usize) -> usize {
     match rt.set_cdr(true, index, target) {
         Ok(()) => index,
         Err(e) => {
-            log_error(&format!("Error in rt_set_cdr: {e}"));
+            log_error(format!("Error in rt_set_cdr: {e}"));
             0
         }
     }
@@ -327,7 +314,7 @@ pub extern "C" fn rt_get_integer(index: usize) -> i64 {
             0
         }
         Err(e) => {
-            log_error(&format!("Error in rt_get_integer: {e}"));
+            log_error(format!("Error in rt_get_integer: {e}"));
             0
         }
     }
@@ -344,7 +331,7 @@ pub extern "C" fn rt_get_float(index: usize) -> f64 {
             0.0
         }
         Err(e) => {
-            log_error(&format!("Error in rt_get_float: {e}"));
+            log_error(format!("Error in rt_get_float: {e}"));
             0.0
         }
     }
@@ -361,7 +348,7 @@ pub extern "C" fn rt_get_symbol(index: usize) -> *mut i8 {
             c_str.into_raw()
         }
         Err(e) => {
-            log_error(&format!("Error in rt_get_symbol: {e}"));
+            log_error(format!("Error in rt_get_symbol: {e}"));
             std::ptr::null_mut()
         }
     }
@@ -376,47 +363,6 @@ pub extern "C" fn rt_get_bool(index: usize) -> i32 {
         0
     } else {
         1
-    }
-}
-
-/// Add a root variable
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_add_root(name: *const u8, value: usize) -> usize {
-    let mut rt = RT.lock().unwrap();
-    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
-    if let Ok(name_str) = c_str.to_str() {
-        rt.add_root(name_str.to_string(), value);
-        1
-    } else {
-        log_error("Error in rt_set_root: invalid string");
-        0
-    }
-}
-
-/// Set a root variable
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_set_root(name: *const u8, value: usize) -> usize {
-    let mut rt = RT.lock().unwrap();
-    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
-    if let Ok(name_str) = c_str.to_str() {
-        rt.set_root(name_str.to_string(), value);
-        1
-    } else {
-        log_error("Error in rt_set_root: invalid string");
-        0
-    }
-}
-
-/// Get the root variable value
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_get_root(name: *const u8) -> usize {
-    let rt = RT.lock().unwrap();
-    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
-    if let Ok(name_str) = c_str.to_str() {
-        rt.get_root(name_str)
-    } else {
-        log_error("Error in rt_get_root: invalid string");
-        0
     }
 }
 
@@ -440,6 +386,22 @@ pub extern "C" fn rt_import(name: *const u8) {
         unwrap_result(call_library_fn(&lib, name_str), ());
         let mut runtime = RT.lock().unwrap();
         runtime.add_package(name_str.to_string(), lib);
+    } else {
+        log_error("Error in rt_import: invalid string");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_breakpoint() {
+    RT.lock().unwrap().breakpoint();
+}
+
+/// This statement is inserted by the compiler as debug information.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_evaluated(info: *const u8) {
+    let c_str = unsafe { std::ffi::CStr::from_ptr(info as *const i8) };
+    if let Ok(info) = c_str.to_str() {
+        RT.lock().unwrap().evaluated(info);
     } else {
         log_error("Error in rt_import: invalid string");
     }

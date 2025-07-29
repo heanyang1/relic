@@ -197,7 +197,7 @@ impl Compile for Node {
                         codegen.merge(lambda_gen);
 
                         let x = pattern.is_proper_list();
-                        log_debug(&format!("is_proper_list: {x}"));
+                        log_debug(format!("is_proper_list: {x}"));
 
                         // Write the code that creates the closure.
                         codegen.append_code(&format!(
@@ -228,9 +228,9 @@ rt_new_symbol("nil");"#,
                         );
                         Ok(())
                     }
-                    SpecialForm::BreakPoint | SpecialForm::Graphviz => {
+                    SpecialForm::BreakPoint  => {
                         let _ = get_n_params(cdr.clone(), 0)?;
-                        codegen.append_code("rt_new_symbol(\"nil\");");
+                        codegen.append_code("rt_breakpoint();rt_new_symbol(\"nil\");");
                         Ok(())
                     }
                     SpecialForm::Define => {
@@ -305,6 +305,7 @@ rt_new_symbol("nil");"#
                         ));
                         Ok(())
                     }
+                    SpecialForm::Graphviz => todo!(),
                     _ => unreachable!(),
                 },
                 _ => {
@@ -330,6 +331,8 @@ if (rt_is_symbol(rt_top())) {{
             },
             Node::SpecialForm(_) => unreachable!(),
             Node::Symbol(sym) => sym.compile(codegen),
-        }
+        }?;
+        codegen.append_code(&format!("rt_evaluated(\"{}\");", self));
+        Ok(())
     }
 }

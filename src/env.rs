@@ -9,8 +9,6 @@ pub trait Env<K, V, R>
 where
     V: Clone,
 {
-    /// Creates a top-level environment.
-    fn top(runtime: &mut R) -> Self;
     /// Insert key-value pair into current environment.
     fn insert_cur(&mut self, key: &K, value: V, runtime: &mut R);
     /// Query the current environment.

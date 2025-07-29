@@ -11,7 +11,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
 colored = "3.0.0"
-stacker = "0.1.21"
 libloading = "0.8.8"
 
 [dev-dependencies]
