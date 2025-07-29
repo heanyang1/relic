@@ -52,12 +52,6 @@ impl Node {
                     .map_err(ParseError::SyntaxError)?;
                 Ok(nil!())
             }
-            Some(TokenType::Comment) => {
-                tokens
-                    .consume(TokenType::Comment)
-                    .map_err(ParseError::SyntaxError)?;
-                Self::parse_list(tokens)
-            }
             _ => {
                 let car = Node::parse(tokens)?;
                 let cdr = if let Some(TokenType::Dot) = tokens.peek_next_token().1 {
@@ -119,7 +113,6 @@ impl Parse for Node {
                 "At position {}: Unexpected \".\"",
                 tokens.get_cur_pos()
             ))),
-            Some(TokenType::Comment) => Self::parse(tokens),
             None => Err(ParseError::EOF),
         }
     }

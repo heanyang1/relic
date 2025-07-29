@@ -39,7 +39,6 @@ fn comment() {
         Lexer::new("1 ; 2 \n\t  3 ").collect::<Vec<TokenType>>(),
         vec![
             TokenType::Number(Number::Int(1)),
-            TokenType::Comment,
             TokenType::Number(Number::Int(3))
         ]
     );
@@ -51,7 +50,6 @@ fn string() {
         Lexer::new("\"a b c\n d\" ; \" e f\" \n\t  \"\" ").collect::<Vec<TokenType>>(),
         vec![
             TokenType::Symbol("a b c\n d".into()),
-            TokenType::Comment,
             TokenType::Symbol("".into())
         ]
     );

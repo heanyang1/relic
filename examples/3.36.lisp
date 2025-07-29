@@ -148,7 +148,7 @@
           ((eq? (car items) exception) (loop (cdr items)))
           ('t (procedure (car items))
                 (loop (cdr items)))))
-  (graphviz)
+  ; (graphviz)
   (loop lst))
 
 (define (has-value? connector)

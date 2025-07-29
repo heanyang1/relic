@@ -125,8 +125,6 @@ pub enum TokenType {
     Number(Number),
     /// Symbol token. Lexer doesn't process symbol.
     Symbol(String),
-    /// Comment token that starts with `;` and ends with `\n`.
-    Comment,
 }
 
 pub struct Lexer {
@@ -218,8 +216,10 @@ impl Lexer {
         }
     }
 
-    /// Peek next token, doesn't consume it or change the lexer's state.
-    pub fn peek_next_token(&self) -> (usize, Option<TokenType>) {
+    /// Peek next token, doesn't consume it or change the lexer's state
+    /// unless a comment is met (where the comment is consumed and no token
+    /// will be generated).
+    pub fn peek_next_token(&mut self) -> (usize, Option<TokenType>) {
         let mut cur_pos = self.cur_pos;
         // remove whitespace
         while let Some(x) = self.raw.chars().nth(cur_pos) {
@@ -250,6 +250,7 @@ impl Lexer {
                         )),
                     )
                 }
+                // Comment starts with `;` and ends with `\n`.
                 ';' => {
                     let mut next_pos = cur_pos + 1;
                     while let Some(x) = self.raw.chars().nth(next_pos) {
@@ -258,7 +259,8 @@ impl Lexer {
                         }
                         next_pos += 1;
                     }
-                    (next_pos + 1, Some(TokenType::Comment))
+                    self.cur_pos = next_pos;
+                    self.peek_next_token()
                 }
                 x if x.is_ascii_digit() => self.peek_number(cur_pos),
                 _ => self.peek_symbol(cur_pos),

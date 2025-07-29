@@ -53,7 +53,7 @@
            ('t (+ (memo-fib (- n 1))
                   (memo-fib (- n 2))))))))
 
-(graphviz)
+; (graphviz)
 (memo-fib 3)
 
-(graphviz)
+; (graphviz)

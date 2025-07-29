@@ -217,7 +217,6 @@ impl LoadToRuntime for &mut Lexer {
         match self.next() {
             Some(TokenType::LParem) => parse_list(self, runtime),
             Some(TokenType::Quote) => panic!("You don't need to quote in the runtime."),
-            Some(TokenType::Comment) => self.load_to(runtime),
             Some(TokenType::Number(i)) => i.load_to(runtime),
             Some(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
             Some(TokenType::RParem) => Err(format!(
@@ -241,10 +240,6 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), String> {
             // case 1
             tokens.consume(TokenType::RParem).unwrap();
             Symbol::Nil.load_to(runtime)
-        }
-        Some(TokenType::Comment) => {
-            tokens.consume(TokenType::Comment).unwrap();
-            parse_list(tokens, runtime)
         }
         _ => {
             tokens.load_to(runtime)?; // car

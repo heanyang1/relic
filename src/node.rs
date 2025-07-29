@@ -202,9 +202,7 @@ impl Node {
                                 Some((next_cdr.clone(), next_id))
                             }
                             Node::Symbol(Symbol::Nil) => None,
-                            Node::Number(_)
-                            | Node::Symbol(_)
-                            | Node::SpecialForm(_) => {
+                            Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) => {
                                 write!(f, " . {node}")?;
                                 None
                             }

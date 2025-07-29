@@ -58,7 +58,8 @@
 ; Warning: the graph is very big. Don't uncomment both of them.
 ; (define x (sqrt-stream 2)) ; there is only one stream.
 ; (display (stream-ref x 3))
+; (graphviz)
 
 ; (define y (sqrt-stream-slow 2)) ; there will be `n` streams for the `n`-th element.
 ; (display (stream-ref y 3))
-(graphviz)
+; (graphviz)
