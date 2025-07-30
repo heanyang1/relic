@@ -62,6 +62,8 @@ impl Node {
                 "-o",
                 &lib_full_name,
                 &c_source_name,
+                #[cfg(target_os = "macos")]
+                "-Wl,-undefined,dynamic_lookup",
             ])
             .spawn()
             .map_err(|e| e.to_string())?
