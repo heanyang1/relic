@@ -32,6 +32,8 @@ fn compile_and_load(input: &str, lib_name: &str) {
             "-o",
             &format!("./lib/{}.relic", lib_name),
             &format!("/tmp/relic_{}.c", lib_name),
+            #[cfg(target_os = "macos")]
+            "-Wl,-undefined,dynamic_lookup"
         ])
         .spawn()
         .unwrap()
