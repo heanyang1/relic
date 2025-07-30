@@ -1,4 +1,0 @@
-# Makes symbols from executable available to dynamically loaded libraries
-# such as Relic packages.
-[build]
-rustflags = ["-C", "link-arg=-Wl,--export-dynamic"]
