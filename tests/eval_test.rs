@@ -79,6 +79,8 @@ fn test_simple_arithmetic() {
     rt_start();
     assert_eval_node!("(+ 1 2 3 4)", RuntimeNode::Number(Number::Int(10)));
     assert_eval_node!("(- 3 2 1)", RuntimeNode::Number(Number::Int(0)));
+    assert_eval_node!("(remainder 10 3)", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_node!("(quotient 20 3)", RuntimeNode::Number(Number::Int(6)));
     assert_eval_node!("(* 2 3)", RuntimeNode::Number(Number::Int(6)));
     assert_eval_node!("(/ 6 3)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(/ 5 2)", RuntimeNode::Number(Number::Float(2.5)));
@@ -252,6 +254,11 @@ fn test_lambda_scope() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_node!("(g)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node!(
+        "(define (h x) (define (f x) x) (f 2))",
+        RuntimeNode::Symbol(Symbol::Nil)
+    );
+    assert_eval_node!("(h 1)", RuntimeNode::Number(Number::Int(2)));
     let mut runtime = RT.lock().unwrap();
     runtime.clear();
 }

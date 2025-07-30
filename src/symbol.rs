@@ -169,23 +169,32 @@ pub enum Symbol {
     List,
     /// Built-in symbol `+`.
     ///
-    /// `(+ x1 x2)` evaluates `x1` and `x2` and return the sum of the results.
+    /// `(+ x1 x2 ...)` evaluates `x1`, `x2`, ... and return the sum of the results.
     Add,
     /// Built-in symbol `-`.
     ///
-    /// `(- x1 x2)` evaluates `x1` and `x2` and return the difference of the
-    /// results.
+    /// `(- x1 x2 ...)` evaluates `x1`, `x2`, ... and return `(((x1-x2)-x3)-...)`.
     Sub,
     /// Built-in symbol `*`.
     ///
-    /// `(* x1 x2)` evaluates `x1` and `x2` and return the product of the
+    /// `(* x1 x2 ...)` evaluates `x1`, `x2`, ... and return the product of the
     /// results.
     Mul,
     /// Built-in symbol `/`.
     ///
-    /// `(/ x1 x2)` evaluates `x1` and `x2` and return the quotient of the
-    /// results.
+    /// `(/ x1 x2 ...)` evaluates `x1`, `x2`, ... and return the `(((x1/x2)/x3)/...)`
+    ///  as floating point.
     Div,
+    /// Built-in symbol `quotient`.
+    ///
+    /// `(quotient x1 x2)` evaluates `x1` and `x2` and return the quotient of the
+    /// results. `x1` and `x2` must be integers.
+    Quotient,
+    /// Built-in symbol `remainder`.
+    ///
+    /// `(remainder x1 x2)` evaluates `x1` and `x2` and return the remainder of the
+    /// results. `x1` and `x2` must be integers.
+    Remainder,
     /// Built-in symbol `>`.
     ///
     /// `(> x1 x2)` evaluates `x1` and `x2` and return `t` if `x1` is greater
@@ -260,6 +269,8 @@ impl<T: Into<String>> From<T> for Symbol {
             "-" => Symbol::Sub,
             "*" => Symbol::Mul,
             "/" => Symbol::Div,
+            "remainder" => Symbol::Remainder,
+            "quotient" => Symbol::Quotient,
             ">" => Symbol::Gt,
             "<" => Symbol::Lt,
             ">=" => Symbol::Ge,
@@ -312,6 +323,8 @@ impl Display for Symbol {
             Symbol::Sub => write!(f, "-"),
             Symbol::Mul => write!(f, "*"),
             Symbol::Div => write!(f, "/"),
+            Symbol::Remainder => write!(f, "remainder"),
+            Symbol::Quotient => write!(f, "quotient"),
             Symbol::Gt => write!(f, ">"),
             Symbol::Lt => write!(f, "<"),
             Symbol::Ge => write!(f, ">="),

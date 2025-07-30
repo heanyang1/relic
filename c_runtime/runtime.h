@@ -1,8 +1,8 @@
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 
 // Misc
 extern void rt_start();
@@ -44,7 +44,8 @@ extern size_t rt_get(const char *name);
 
 // Closures
 extern void rt_apply(size_t nargs);
-extern void rt_new_closure(size_t id, void (*func)(void), size_t nargs, int variadic);
+extern void rt_new_closure(const char *name, void (*func)(void), size_t nargs,
+                           int variadic);
 extern void rt_prepare_args(size_t cid, size_t nargs);
 typedef void (*c_func)();
 extern c_func rt_get_c_func(size_t cid);
@@ -58,4 +59,3 @@ extern void rt_add_root(const char *name, size_t value);
 extern void rt_set_root(const char *name, size_t value);
 extern size_t rt_get_root(const char *name);
 extern size_t rt_remove_root(const char *name);
-

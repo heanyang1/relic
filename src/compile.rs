@@ -269,7 +269,7 @@ impl Compile for Node {
 
                             // Write the code that creates the closure.
                             codegen.append_code(&format!(
-                                "rt_new_closure({lambda_id}, func_{lambda_id}, {}, {});",
+                                "rt_new_closure(\"{lambda_id}\", func_{lambda_id}, {}, {});",
                                 pvec.len(),
                                 !pattern.is_proper_list()
                             ));

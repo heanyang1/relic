@@ -87,13 +87,18 @@ pub extern "C" fn rt_remove_root(name: *const u8) -> usize {
 
 /// Calls [Closure::new] and pushes the result to the stack.
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_new_closure(id: usize, func: CVoidFunc, nargs: usize, variadic: bool) {
-    let mut rt = RT.lock().unwrap();
-    rt.api_called(format!("rt_new_closure({id}, <func>, {nargs}, {variadic})"));
-    rt.try_gc();
+pub extern "C" fn rt_new_closure(name: *const u8, func: CVoidFunc, nargs: usize, variadic: bool) {
+    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
+    if let Ok(name) = c_str.to_str() {
+        let mut rt = RT.lock().unwrap();
+        rt.api_called(format!("rt_new_closure({name}, <func>, {nargs}, {variadic})"));
+        rt.try_gc();
 
-    let val = Closure::new(id, func, nargs, variadic, &rt);
-    val.load_to(&mut rt).unwrap();
+        let val = Closure::new(name.to_string(), func, nargs, variadic, &rt);
+        val.load_to(&mut rt).unwrap();
+    } else {
+        log_error("Error in rt_remove_root: invalid string");
+    }
 }
 
 /// Calls [Runtime::get_c_func].
