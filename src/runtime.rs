@@ -598,6 +598,7 @@ impl Runtime {
             };
         }
     }
+    /// Called when a breakpoint is hit.
     pub fn breakpoint(&mut self) {
         if self.dbg_state >= DbgState::Normal {
             log_debug(format!("Hit a breakpoint"));

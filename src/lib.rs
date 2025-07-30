@@ -24,14 +24,14 @@ use crate::{
 /// The runtime that is pointed by all C bindings.
 pub static RT: LazyLock<Mutex<Runtime>> = LazyLock::new(|| Mutex::new(Runtime::new(1)));
 
-/// Initialize the runtime environment.
+/// Calls [Runtime::top_env].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_start() {
     let mut rt = RT.lock().unwrap();
     rt.top_env();
 }
 
-/// Add a root variable
+/// Calls [Runtime::add_root].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_add_root(name: *const u8, value: usize) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -45,7 +45,7 @@ pub extern "C" fn rt_add_root(name: *const u8, value: usize) -> usize {
     }
 }
 
-/// Set a root variable
+/// Calls [Runtime::set_root].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_set_root(name: *const u8, value: usize) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -59,7 +59,7 @@ pub extern "C" fn rt_set_root(name: *const u8, value: usize) -> usize {
     }
 }
 
-/// Get the root variable value
+/// Calls [Runtime::get_root].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_root(name: *const u8) -> usize {
     let rt = RT.lock().unwrap();
@@ -72,7 +72,7 @@ pub extern "C" fn rt_get_root(name: *const u8) -> usize {
     }
 }
 
-/// Remove a root variable
+/// Calls [Runtime::remove_root].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_remove_root(name: *const u8) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -85,7 +85,7 @@ pub extern "C" fn rt_remove_root(name: *const u8) -> usize {
     }
 }
 
-/// Create a new closure and push the result to the stack.
+/// Calls [Closure::new] and pushes the result to the stack.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_closure(id: usize, func: CVoidFunc, nargs: usize, variadic: bool) {
     let mut rt = RT.lock().unwrap();
@@ -136,7 +136,7 @@ pub extern "C" fn rt_swap() {
     rt.swap()
 }
 
-/// Get the stack top
+/// Calls [Runtime::top].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_top() -> usize {
     let mut rt = RT.lock().unwrap();
@@ -144,7 +144,7 @@ pub extern "C" fn rt_top() -> usize {
     rt.top()
 }
 
-/// Display a node by index as string
+/// Calls [Runtime::display_node_idx].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_display_node_idx(index: usize) -> *mut i8 {
     let mut rt = RT.lock().unwrap();
@@ -154,7 +154,7 @@ pub extern "C" fn rt_display_node_idx(index: usize) -> *mut i8 {
     c_str.into_raw()
 }
 
-/// Evaluate an expression and push the result onto the stack
+/// Calls [Runtime::apply].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_apply(nargs: usize) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -210,7 +210,7 @@ pub extern "C" fn rt_new_float(value: f64) {
     Number::Float(value).load_to(&mut rt).unwrap()
 }
 
-/// Create a new environment
+/// Calls [Runtime::new_env].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_env(name: *const u8, outer: usize) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -224,7 +224,7 @@ pub extern "C" fn rt_new_env(name: *const u8, outer: usize) -> usize {
     }
 }
 
-/// Get current environment
+/// Calls [Runtime::current_env].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_current_env() -> usize {
     let mut rt = RT.lock().unwrap();
@@ -232,7 +232,7 @@ pub extern "C" fn rt_current_env() -> usize {
     rt.current_env()
 }
 
-/// Move to other environment
+/// Calls [Runtime::move_to_env].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_move_to_env(env: usize) {
     let mut rt = RT.lock().unwrap();
@@ -240,7 +240,7 @@ pub extern "C" fn rt_move_to_env(env: usize) {
     rt.move_to_env(env);
 }
 
-/// `define` keyword.
+/// Calls [Env::define].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_define(key: *const u8, value: usize) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
@@ -255,7 +255,7 @@ pub extern "C" fn rt_define(key: *const u8, value: usize) {
         log_error("Error in rt_define: invalid string");
     }
 }
-/// `set!` keyword.
+/// Calls [Env::set].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_set(key: *const u8, value: usize) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
@@ -270,7 +270,7 @@ pub extern "C" fn rt_set(key: *const u8, value: usize) {
         log_error("Error in rt_set: invalid string");
     }
 }
-/// `get` keyword.
+/// Calls [Env::get].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get(key: *const u8) -> usize {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
@@ -287,7 +287,7 @@ pub extern "C" fn rt_get(key: *const u8) -> usize {
     }
 }
 
-/// Set the car of a pair
+/// Calls [Runtime::set_car].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_set_car(index: usize, target: usize) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -301,7 +301,7 @@ pub extern "C" fn rt_set_car(index: usize, target: usize) -> usize {
     }
 }
 
-/// Set the cdr of a pair
+/// Calls [Runtime::set_cdr].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_set_cdr(index: usize, target: usize) -> usize {
     let mut rt = RT.lock().unwrap();
@@ -315,7 +315,7 @@ pub extern "C" fn rt_set_cdr(index: usize, target: usize) -> usize {
     }
 }
 
-/// Get the number value
+/// Get the integer value
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_integer(index: usize) -> i64 {
     let mut rt = RT.lock().unwrap();
@@ -382,7 +382,9 @@ pub extern "C" fn rt_get_bool(index: usize) -> i32 {
     }
 }
 
-/// Check if a node is a symbol
+/// Checks if a node is a symbol.
+///
+/// Returns 1 if the node is a symbol, 0 otherwise.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
     let mut rt = RT.lock().unwrap();
