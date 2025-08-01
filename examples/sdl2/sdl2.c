@@ -1,5 +1,6 @@
 #include "../c_runtime/runtime.h"
-#include <SDL2/SDL.h>
+
+#include <SDL.h>
 
 // Wrapper for SDL_Init
 void sdl_init_wrapper() {

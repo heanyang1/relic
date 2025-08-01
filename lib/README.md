@@ -91,5 +91,6 @@ void func2();
 
 Some notes:
 - Currently Relic only has 3 primitive types: 64-bit integer, 64-bit floating point number and symbol. User-defined symbols can be transformed from (or to) C string. Boolean values are transformed to symbol `t` and `nil`.
+- On MacOS, you need to add `-Wl,-undefined,dynamic_lookup` to the linker flags so that the library can detect the APIs provided by the runtime.
 - See [runtime.h](../c_runtime/runtime.h) and [lib.rs](../src/lib.rs) for the complete C API.
 - See [SDL2 package](../examples/sdl2/) for an example of creating (and using) C bindings.
