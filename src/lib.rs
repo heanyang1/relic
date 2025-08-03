@@ -91,7 +91,9 @@ pub extern "C" fn rt_new_closure(name: *const u8, func: CVoidFunc, nargs: usize,
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name) = c_str.to_str() {
         let mut rt = RT.lock().unwrap();
-        rt.api_called(format!("rt_new_closure({name}, <func>, {nargs}, {variadic})"));
+        rt.api_called(format!(
+            "rt_new_closure({name}, <func>, {nargs}, {variadic})"
+        ));
         rt.try_gc();
 
         let val = Closure::new(name.to_string(), func, nargs, variadic, &rt);
@@ -270,7 +272,12 @@ pub extern "C" fn rt_set(key: *const u8, value: usize) {
             let mut rt = RT.lock().unwrap();
             rt.api_called(format!("rt_set({key_str}, {value})"));
         }
-        env.set(&key_str.to_string(), value, &mut RT.lock().unwrap());
+        if env
+            .set(&key_str.to_string(), value, &mut RT.lock().unwrap())
+            .is_none()
+        {
+            log_error(format!("Error in rt_set: variable {key_str} not found"));
+        }
     } else {
         log_error("Error in rt_set: invalid string");
     }
@@ -285,7 +292,13 @@ pub extern "C" fn rt_get(key: *const u8) -> usize {
             let mut rt = RT.lock().unwrap();
             rt.api_called(format!("rt_get({key_str})"));
         }
-        env.get(&key_str.to_string(), &RT.lock().unwrap()).unwrap()
+        match env.get(&key_str.to_string(), &RT.lock().unwrap()) {
+            Some(val) => val,
+            None => {
+                log_error(format!("Error in rt_get: variable {key_str} not found"));
+                0
+            }
+        }
     } else {
         log_error("Error in rt_get: invalid string");
         0
