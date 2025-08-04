@@ -93,6 +93,10 @@ impl PreProcess for Node {
             }
             Node::Pair(car, cdr) => {
                 let car = car.borrow_mut().preprocess(macros)?;
+                // skip preprocessing if this expression is quoted
+                if car == Node::SpecialForm(SpecialForm::Quote) {
+                    return Ok(Node::Pair(car.into(), cdr.clone()));
+                }
                 let cdr = cdr.borrow_mut().preprocess(macros)?;
                 match &car {
                     Node::Symbol(Symbol::User(sym)) if macros.contains_key(sym) => {

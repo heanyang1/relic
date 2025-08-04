@@ -418,22 +418,26 @@ impl StackMachine<usize> for Runtime {
             }
             Symbol::Car => {
                 assert_eq!(nargs, 1);
+                let index = self.top();
+                let node_str = self.display_node_idx(index);
                 let val = self.pop_as_node();
                 if let RuntimeNode::Pair(car, _) = val {
                     self.push(car);
                     Ok(())
                 } else {
-                    Err("Not a pair".to_string())
+                    Err(format!("{node_str} is not a pair"))
                 }
             }
             Symbol::Cdr => {
                 assert_eq!(nargs, 1);
+                let index = self.top();
+                let node_str = self.display_node_idx(index);
                 let val = self.pop_as_node();
                 if let RuntimeNode::Pair(_, cdr) = val {
                     self.push(cdr);
                     Ok(())
                 } else {
-                    Err("Not a pair".to_string())
+                    Err(format!("{node_str} is not a pair"))
                 }
             }
             Symbol::Cons => {

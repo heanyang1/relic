@@ -210,16 +210,13 @@ impl Compile for Node {
         &self,
         codegen: &mut CodeGen,
         ctx: ContexInfo,
-        mut dbg_info: bool,
+        dbg_info: bool,
     ) -> Result<(), String> {
         match self {
             Node::String(val) => {
                 if !ctx.drop_ret {
                     codegen.append_code(&format!("rt_new_symbol(\"{val}\");"))
                 }
-                // We disable the debug message of string |-> string, otherwise
-                // we will have to handle nested quotes.
-                dbg_info = false;
                 Ok(())
             }
             Node::Number(Number::Float(val)) => {
@@ -401,22 +398,24 @@ fflush(NULL);"#,
                     }
                     SpecialForm::Begin => {
                         let operands = vectorize(cdr.clone())?;
-                        for i in 0..operands.len() - 1 {
-                            // Keep environment, drop result
-                            operands[i].borrow().compile(
-                                codegen,
-                                ContexInfo {
-                                    drop_env: false,
-                                    drop_ret: true,
-                                },
-                                dbg_info,
-                            )?;
+                        if !operands.is_empty() {
+                            for i in 0..operands.len() - 1 {
+                                // Keep environment, drop result
+                                operands[i].borrow().compile(
+                                    codegen,
+                                    ContexInfo {
+                                        drop_env: false,
+                                        drop_ret: true,
+                                    },
+                                    dbg_info,
+                                )?;
+                            }
+                            operands
+                                .last()
+                                .unwrap()
+                                .borrow()
+                                .compile(codegen, ctx, dbg_info)?;
                         }
-                        operands
-                            .last()
-                            .unwrap()
-                            .borrow()
-                            .compile(codegen, ctx, dbg_info)?;
                         Ok(())
                     }
                     SpecialForm::Import => {
@@ -497,9 +496,11 @@ if (rt_is_symbol(rt_top())) {{
             Node::Symbol(sym) => sym.compile(codegen, ctx, dbg_info),
         }?;
         if dbg_info {
+            let self_str = self.to_string();
+            let self_str = self_str.replace("\"", "'");
             codegen.append_code(&format!(
                 "rt_evaluated(\"{}\", {});",
-                self,
+                self_str,
                 if ctx.drop_ret { 1 } else { 0 }
             ));
         }

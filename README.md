@@ -27,7 +27,7 @@ The REPL, the debugger and the compiler are all in the main executable. Run `car
 The compiler only compiles Lisp code to C code (unlike GCC or Clang). You need to compile and link the output C code:
 ```sh
 # Lisp -> C
-cargo run -- compile program.lisp program.c
+cargo run -- compile -i program.lisp -o program.c
 # C -> executable
 # You need to include `c_runtime/runtime.h` and link `target/debug/librelic.so`
 clang -Ic_runtime -o program program.c -Ltarget/debug -lrelic -Wl,-rpath,target/debug
@@ -47,6 +47,12 @@ cd c_runtime
 # Compile the tests
 ./run_tests.py
 ```
+
+## Acknowledgments
+
+- [SICP at MIT OpenCourseWare](https://ocw.mit.edu/courses/6-001-structure-and-interpretation-of-computer-programs-spring-2005/)
+- [MaxXing's Lisp interpreter](https://github.com/pku-minic/awesome-sysy/tree/master/lisp): Lisp interpreters written in a C-like language and Lisp. I borrowed some ideas and the meta-circular interpreter from it.
+- [Matt Might's blog](https://matt.might.net/articles/) has many articles about compiling Scheme into other languages.
 
 ## License
 

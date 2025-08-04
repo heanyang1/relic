@@ -13,7 +13,7 @@ use relic::{
     logger::{LogLevel, log_error, set_log_level, unwrap_result},
     node::Node,
     parser::{Parse, ParseError},
-    preprocess::PreProcess,
+    preprocess::{Macro, PreProcess},
     rt_start,
     runtime::StackMachine,
     symbol::Symbol,
@@ -64,28 +64,32 @@ struct Cli {
     debug_info: bool,
 }
 
+fn file_to_node(input_path: Option<PathBuf>, macros: &mut HashMap<String, Macro>) -> Option<Node> {
+    input_path.map(|file_path| {
+        let file = unwrap_result(read_to_string(file_path), "".to_string());
+        let mut node = unwrap_result(Node::from_str(&file), Node::Symbol(Symbol::Nil));
+        unwrap_result(node.preprocess(macros), Node::Symbol(Symbol::Nil))
+    })
+}
+
+fn run_node(node: Node) -> String {
+    unwrap_result(node.jit_compile(false), ());
+    let mut runtime = RT.lock().unwrap();
+    let index = runtime.pop();
+    runtime.display_node_idx(index)
+}
+
 fn main() {
     let cli = Cli::parse();
 
     let mut macros = HashMap::new();
-    let input_node = cli.input_path.map(|file_path| {
-        let file = unwrap_result(read_to_string(file_path), "".to_string());
-        let mut node = unwrap_result(Node::from_str(&file), Node::Symbol(Symbol::Nil));
-        unwrap_result(node.preprocess(&mut macros), Node::Symbol(Symbol::Nil))
-    });
-
-    fn run_node(node: Node) {
-        unwrap_result(node.jit_compile(false), ());
-        let mut runtime = RT.lock().unwrap();
-        let index = runtime.pop();
-        println!("result: {}", runtime.display_node_idx(index))
-    }
+    let input_node = file_to_node(cli.input_path, &mut macros);
 
     match cli.mode {
         Mode::Run => {
             rt_start();
             if let Some(node) = input_node {
-                run_node(node);
+                println!("result: {}", run_node(node));
             } else {
                 eprintln!("No files to run");
             }
@@ -94,7 +98,7 @@ fn main() {
             rt_start();
 
             if let Some(node) = input_node {
-                run_node(node);
+                println!("result: {}", run_node(node));
             }
 
             // start REPL
@@ -123,7 +127,7 @@ fn main() {
                     }
                 };
                 node = unwrap_result(node.preprocess(&mut macros), Node::Symbol(Symbol::Nil));
-                run_node(node);
+                println!("{}", run_node(node));
             }
         }
         Mode::Compile => {
@@ -169,4 +173,15 @@ fn main() {
             }
         },
     }
+}
+
+#[test]
+fn run_examples() {
+    rt_start();
+    let node = file_to_node(
+        Some(PathBuf::from_str("examples/interpreter.lisp").unwrap()),
+        &mut HashMap::new(),
+    )
+    .unwrap();
+    assert_eq!(run_node(node), "(1 1 2 3 5 8 13 21 34 55)")
 }
