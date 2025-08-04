@@ -59,6 +59,7 @@ impl Node {
         match self {
             Node::Number(num) => Node::Number(num.clone()),
             Node::Symbol(sym) => Node::Symbol(sym.clone()),
+            Node::String(val) => Node::String(val.clone()),
             Node::Pair(car, cdr) => Node::Pair(
                 car.borrow().deep_copy().into(),
                 cdr.borrow().deep_copy().into(),
@@ -73,7 +74,7 @@ impl Node {
             return;
         }
         match self {
-            Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) => {
+            Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) | Node::String(_) => {
                 // do nothing
             }
             Node::Pair(car, cdr) => {
@@ -87,7 +88,9 @@ impl Node {
 impl PreProcess for Node {
     fn preprocess(&mut self, macros: &mut HashMap<String, Macro>) -> Result<Node, String> {
         match self {
-            Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) => Ok(self.deep_copy()),
+            Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) | Node::String(_) => {
+                Ok(self.deep_copy())
+            }
             Node::Pair(car, cdr) => {
                 let car = car.borrow_mut().preprocess(macros)?;
                 let cdr = cdr.borrow_mut().preprocess(macros)?;

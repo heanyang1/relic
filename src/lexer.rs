@@ -125,6 +125,8 @@ pub enum TokenType {
     Number(Number),
     /// Symbol token. Lexer doesn't process symbol.
     Symbol(String),
+    /// String literal token.
+    String(String),
 }
 
 pub struct Lexer {
@@ -245,7 +247,7 @@ impl Lexer {
                     }
                     (
                         next_pos + 1,
-                        Some(TokenType::Symbol(
+                        Some(TokenType::String(
                             self.raw.as_str()[cur_pos + 1..next_pos].into(),
                         )),
                     )

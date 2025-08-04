@@ -49,8 +49,8 @@ fn string() {
     assert_eq!(
         Lexer::new("\"a b c\n d\" ; \" e f\" \n\t  \"\" ").collect::<Vec<TokenType>>(),
         vec![
-            TokenType::Symbol("a b c\n d".into()),
-            TokenType::Symbol("".into())
+            TokenType::String("a b c\n d".into()),
+            TokenType::String("".into())
         ]
     );
 }

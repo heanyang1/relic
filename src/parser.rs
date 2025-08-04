@@ -91,20 +91,17 @@ impl Parse for Node {
                 },
                 _ => Self::parse_list(tokens),
             },
-            Some(TokenType::Quote) => {
-                // '(...) is equivalent to (quote (...))
-                Ok(Node::Pair(
-                    Node::SpecialForm(SpecialForm::Quote).into(),
-                    Node::Pair(Self::parse(tokens)?.into(), nil!().into()).into(),
-                ))
-            }
+            // '(...) is equivalent to (quote (...)).
+            Some(TokenType::Quote) => Ok(Node::Pair(
+                Node::SpecialForm(SpecialForm::Quote).into(),
+                Node::Pair(Self::parse(tokens)?.into(), nil!().into()).into(),
+            )),
             Some(TokenType::Number(i)) => Ok(Node::Number(i)),
-            Some(TokenType::Symbol(symbol)) => {
-                // If a special form appears here, it will become a symbol that
-                // has the same name as the special form. This is what the user
-                // wants when creating a metacircular interpreter.
-                Ok(Node::Symbol(symbol.into()))
-            }
+            // If a special form appears here, it will become a symbol that
+            // has the same name as the special form. This is what the user
+            // wants when creating a metacircular interpreter.
+            Some(TokenType::Symbol(symbol)) => Ok(Node::Symbol(symbol.into())),
+            Some(TokenType::String(value)) => Ok(Node::String(value)),
             Some(TokenType::RParem) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Unexpected \")\"",
                 tokens.get_cur_pos()

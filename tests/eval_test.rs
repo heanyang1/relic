@@ -66,9 +66,11 @@ macro_rules! assert_eval_text {
 
 #[test]
 #[serial]
-fn test_int() {
+fn test_primitive() {
     rt_start();
     assert_eval_node!("42", RuntimeNode::Number(Number::Int(42)));
+    assert_eval_node!("4.2", RuntimeNode::Number(Number::Float(4.2)));
+    assert_eval_node!("\"hello  \"", RuntimeNode::Symbol(Symbol::User("hello  ".to_string())));
 
     let mut runtime = RT.lock().unwrap();
     runtime.clear();

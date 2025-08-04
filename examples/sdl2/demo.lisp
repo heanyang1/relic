@@ -50,7 +50,7 @@
 (sdl-init SDL_INIT_VIDEO)
 
 ;; Create a window
-(define window (sdl-create-window 'Relic-SDL2-Demo 
+(define window (sdl-create-window "Relic SDL2 Demo" 
                                  SDL_WINDOWPOS_CENTERED SDL_WINDOWPOS_CENTERED 
                                  512 512
                                  SDL_WINDOW_SHOWN))

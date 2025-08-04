@@ -210,11 +210,18 @@ impl Compile for Node {
         &self,
         codegen: &mut CodeGen,
         ctx: ContexInfo,
-        dbg_info: bool,
+        mut dbg_info: bool,
     ) -> Result<(), String> {
-        //println!("ctx:{ctx:?}, self: {self}");
-
         match self {
+            Node::String(val) => {
+                if !ctx.drop_ret {
+                    codegen.append_code(&format!("rt_new_symbol(\"{val}\");"))
+                }
+                // We disable the debug message of string |-> string, otherwise
+                // we will have to handle nested quotes.
+                dbg_info = false;
+                Ok(())
+            }
             Node::Number(Number::Float(val)) => {
                 if !ctx.drop_ret {
                     codegen.append_code(&format!("rt_new_float({val});"))

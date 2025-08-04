@@ -26,6 +26,8 @@ enum Mode {
     /// Runs a REPL. If there is an input file, interprets it and modifies
     /// the environment.
     Repl,
+    /// Runs the file and exit.
+    Run,
     /// Compiles the input file to C code and write to output file.
     /// If the output file is not specified, print the code to stdout.
     Compile,
@@ -72,14 +74,27 @@ fn main() {
         unwrap_result(node.preprocess(&mut macros), Node::Symbol(Symbol::Nil))
     });
 
+    fn run_node(node: Node) {
+        unwrap_result(node.jit_compile(false), ());
+        let mut runtime = RT.lock().unwrap();
+        let index = runtime.pop();
+        println!("result: {}", runtime.display_node_idx(index))
+    }
+
     match cli.mode {
-        Mode::Repl => {
+        Mode::Run => {
             rt_start();
             if let Some(node) = input_node {
-                unwrap_result(node.jit_compile(false), ());
-                let mut runtime = RT.lock().unwrap();
-                let index = runtime.pop();
-                println!("result: {}", runtime.display_node_idx(index))
+                run_node(node);
+            } else {
+                eprintln!("No files to run");
+            }
+        }
+        Mode::Repl => {
+            rt_start();
+
+            if let Some(node) = input_node {
+                run_node(node);
             }
 
             // start REPL
@@ -108,10 +123,7 @@ fn main() {
                     }
                 };
                 node = unwrap_result(node.preprocess(&mut macros), Node::Symbol(Symbol::Nil));
-                unwrap_result(node.jit_compile(false), ());
-                let mut runtime = RT.lock().unwrap();
-                let index = runtime.pop();
-                println!("result: {}", runtime.display_node_idx(index))
+                run_node(node);
             }
         }
         Mode::Compile => {

@@ -20,6 +20,8 @@ use crate::{
 pub enum Node {
     /// Symbols.
     Symbol(Symbol),
+    /// String literals.
+    String(String),
     /// Numbers.
     Number(Number),
     /// Pair of nodes.
@@ -155,6 +157,7 @@ impl Node {
         id: usize,
     ) -> fmt::Result {
         match self {
+            Node::String(value) => write!(f, "\"{value}\""),
             Node::Number(num) => write!(f, "{num}"),
             Node::SpecialForm(sym) => write!(f, "{sym}"),
             Node::Symbol(sym) => write!(f, "{sym}"),
@@ -202,7 +205,10 @@ impl Node {
                                 Some((next_cdr.clone(), next_id))
                             }
                             Node::Symbol(Symbol::Nil) => None,
-                            Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) => {
+                            Node::Number(_)
+                            | Node::Symbol(_)
+                            | Node::SpecialForm(_)
+                            | Node::String(_) => {
                                 write!(f, " . {node}")?;
                                 None
                             }
