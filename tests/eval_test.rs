@@ -4,9 +4,11 @@ use relic::parser::Parse;
 use relic::preprocess::PreProcess;
 use relic::runtime::RuntimeNode;
 use relic::symbol::Symbol;
-use relic::{RT, rt_pop, rt_start};
+use relic::{RT, file_to_node, rt_pop, rt_start, run_node};
 use serial_test::serial;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 macro_rules! assert_eval_node {
     ($code:expr, $expected:expr) => {{
@@ -70,7 +72,10 @@ fn test_primitive() {
     rt_start();
     assert_eval_node!("42", RuntimeNode::Number(Number::Int(42)));
     assert_eval_node!("4.2", RuntimeNode::Number(Number::Float(4.2)));
-    assert_eval_node!("\"hello  \"", RuntimeNode::Symbol(Symbol::User("hello  ".to_string())));
+    assert_eval_node!(
+        "\"hello  \"",
+        RuntimeNode::Symbol(Symbol::User("hello  ".to_string()))
+    );
 
     let mut runtime = RT.lock().unwrap();
     runtime.clear();
@@ -625,6 +630,20 @@ fn test_cycle() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_text!("(make-cycle2 (list 'a 'b 'c))", "(a b c . #0#)");
+    let mut runtime = RT.lock().unwrap();
+    runtime.clear();
+}
+
+#[test]
+#[serial]
+fn run_examples() {
+    rt_start();
+    let node = file_to_node(
+        Some(PathBuf::from_str("examples/interpreter.lisp").unwrap()),
+        &mut HashMap::new(),
+    )
+    .unwrap();
+    assert_eq!(run_node(node), "(1 1 2 3 5 8 13 21 34 55)");
     let mut runtime = RT.lock().unwrap();
     runtime.clear();
 }

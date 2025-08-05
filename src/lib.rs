@@ -1,5 +1,6 @@
 pub mod compile;
 mod env;
+mod error;
 pub mod lexer;
 pub mod logger;
 pub mod node;
@@ -9,17 +10,43 @@ pub mod preprocess;
 pub mod runtime;
 pub mod symbol;
 mod util;
-use std::sync::{LazyLock, Mutex};
+use std::{
+    collections::HashMap,
+    fs::read_to_string,
+    path::PathBuf,
+    str::FromStr,
+    sync::{LazyLock, Mutex},
+};
 
 use crate::{
     env::Env,
     lexer::Number,
-    logger::{log_error, unwrap_result},
+    logger::{log_error, log_warning, unwrap_result},
+    node::Node,
     package::{call_library_fn, load_library},
-    runtime::{Closure, LoadToRuntime, Runtime, StackMachine},
+    preprocess::{Macro, PreProcess},
+    runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
     symbol::Symbol,
     util::CVoidFunc,
 };
+
+pub fn file_to_node(
+    input_path: Option<PathBuf>,
+    macros: &mut HashMap<String, Macro>,
+) -> Option<Node> {
+    input_path.map(|file_path| {
+        let file = unwrap_result(read_to_string(file_path), "".to_string());
+        let mut node = unwrap_result(Node::from_str(&file), Node::Symbol(Symbol::Nil));
+        unwrap_result(node.preprocess(macros), Node::Symbol(Symbol::Nil))
+    })
+}
+
+pub fn run_node(node: Node) -> String {
+    unwrap_result(node.jit_compile(false), ());
+    let mut runtime = RT.lock().unwrap();
+    let index = runtime.pop();
+    runtime.display_node_idx(index)
+}
 
 /// The runtime that is pointed by all C bindings.
 pub static RT: LazyLock<Mutex<Runtime>> = LazyLock::new(|| Mutex::new(Runtime::new(1)));
@@ -292,11 +319,14 @@ pub extern "C" fn rt_get(key: *const u8) -> usize {
             let mut rt = RT.lock().unwrap();
             rt.api_called(format!("rt_get({key_str})"));
         }
-        match env.get(&key_str.to_string(), &RT.lock().unwrap()) {
+        let mut runtime = RT.lock().unwrap();
+        match env.get(&key_str.to_string(), &runtime) {
             Some(val) => val,
             None => {
-                log_error(format!("Error in rt_get: variable {key_str} not found"));
-                0
+                log_warning(format!(
+                    "Error in rt_get: variable {key_str} not found, returning nil"
+                ));
+                runtime.new_node_with_gc(RuntimeNode::Symbol(Symbol::Nil))
             }
         }
     } else {

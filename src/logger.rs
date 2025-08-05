@@ -1,6 +1,7 @@
 //! The logger module.
 
 use std::{
+    process::abort,
     str::FromStr,
     sync::{LazyLock, Mutex},
 };
@@ -10,7 +11,8 @@ use colored::Colorize;
 #[derive(PartialEq, PartialOrd)]
 pub enum LogLevel {
     Debug = 0,
-    Error = 1,
+    Warning = 1,
+    Error = 2,
 }
 
 impl FromStr for LogLevel {
@@ -18,6 +20,7 @@ impl FromStr for LogLevel {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "DEBUG" => Ok(LogLevel::Debug),
+            "WARNING" => Ok(LogLevel::Warning),
             "ERROR" => Ok(LogLevel::Error),
             _ => Err(format!("Unknown log level: {s}")),
         }
@@ -53,6 +56,12 @@ impl Logger {
             self.write(&message, "blue");
         }
     }
+    fn warning(&mut self, msg: String) {
+        if self.level <= LogLevel::Warning {
+            let message = format!("[WARNING] {msg}");
+            self.write(&message, "yellow");
+        }
+    }
     fn error(&mut self, msg: String) {
         if self.level <= LogLevel::Error {
             let message = format!("[ERROR] {msg}");
@@ -69,11 +78,18 @@ where
 {
     LOGGER.lock().unwrap().debug(msg.to_string());
 }
+pub fn log_warning<T>(msg: T)
+where
+    T: ToString,
+{
+    LOGGER.lock().unwrap().warning(msg.to_string());
+}
 pub fn log_error<T>(msg: T)
 where
     T: ToString,
 {
     LOGGER.lock().unwrap().error(msg.to_string());
+    abort();
 }
 pub fn set_log_level(level: LogLevel) {
     LOGGER.lock().unwrap().set_log_level(level);
@@ -90,4 +106,17 @@ where
             default
         }
     }
+}
+
+#[test]
+fn test_logger() {
+    let mut logger = Logger::new();
+    logger.set_log_level(LogLevel::Debug);
+    logger.debug("This is a debug message".to_string());
+    logger.warning("This is a warning message".to_string());
+    logger.error("This is an error message".to_string());
+    logger.set_log_level(LogLevel::Warning);
+    logger.debug("This debug message should not be printed".to_string());
+    logger.warning("This is another warning message".to_string());
+    logger.error("This is another error message".to_string());
 }

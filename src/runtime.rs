@@ -13,6 +13,7 @@ use std::{
 
 use crate::{
     env::Env,
+    error::RuntimeError,
     lexer::{Lexer, Number, TokenType},
     logger::{log_debug, log_error, unwrap_result},
     node::Node,
@@ -189,35 +190,35 @@ impl Display for Runtime {
 /// The trait that describes how to move an object into the runtime.
 pub trait LoadToRuntime {
     /// Load the object into the top of the stack.
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String>;
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError>;
 }
 
 impl LoadToRuntime for Number {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
         RuntimeNode::Number(self).load_to(runtime)
     }
 }
 
 impl LoadToRuntime for Symbol {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
         RuntimeNode::Symbol(self).load_to(runtime)
     }
 }
 
 impl LoadToRuntime for Closure {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
         RuntimeNode::Closure(self).load_to(runtime)
     }
 }
 
 impl LoadToRuntime for &str {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
         Lexer::new(self).load_to(runtime)
     }
 }
 
 impl LoadToRuntime for &mut Lexer {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
         match self.next() {
             Some(TokenType::LParem) => parse_list(self, runtime),
             Some(TokenType::Quote) | Some(TokenType::String(_)) => {
@@ -225,26 +226,28 @@ impl LoadToRuntime for &mut Lexer {
             }
             Some(TokenType::Number(i)) => i.load_to(runtime),
             Some(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
-            Some(TokenType::RParem) => Err(format!(
-                "At position {}: Unexpected \")\"",
+            Some(TokenType::RParem) => Err(RuntimeError::new(format!(
+                "At position {}: Unexpected ')'",
                 self.get_cur_pos()
-            )),
-            Some(TokenType::Dot) => Err(format!(
-                "At position {}: Unexpected \".\"",
+            ))),
+            Some(TokenType::Dot) => Err(RuntimeError::new(format!(
+                "At position {}: Unexpected '.'",
                 self.get_cur_pos()
-            )),
-            None => Err("Unexpected EOF while parsing".to_string()),
+            ))),
+            None => Err(RuntimeError::new("Unexpected EOF while parsing")),
         }
     }
 }
 
 /// The same as [Node::parse_list], except that it deals with the runtime and
 /// loads everything into the stack.
-fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), String> {
+fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), RuntimeError> {
     match tokens.peek_next_token().1 {
         Some(TokenType::RParem) => {
             // case 1
-            tokens.consume(TokenType::RParem).unwrap();
+            tokens
+                .consume(TokenType::RParem)
+                .map_err(|e| RuntimeError::new(e))?;
             Symbol::Nil.load_to(runtime)
         }
         _ => {
@@ -255,7 +258,9 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), String> {
                 // case 3
                 tokens.consume(TokenType::Dot).unwrap();
                 tokens.load_to(runtime)?;
-                tokens.consume(TokenType::RParem)?;
+                tokens
+                    .consume(TokenType::RParem)
+                    .map_err(|e| RuntimeError::new(e))?;
             } else {
                 // case 2
                 parse_list(tokens, runtime)?
@@ -269,7 +274,7 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), String> {
 }
 
 impl LoadToRuntime for RuntimeNode {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), String> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
         let idx = runtime.new_node_with_gc(self);
         runtime.push(idx);
         Ok(())
@@ -277,12 +282,12 @@ impl LoadToRuntime for RuntimeNode {
 }
 
 impl TryFrom<RuntimeNode> for Number {
-    type Error = String;
+    type Error = RuntimeError;
     fn try_from(value: RuntimeNode) -> Result<Self, Self::Error> {
         if let RuntimeNode::Number(number) = value {
             Ok(number.clone())
         } else {
-            Err("Not a number".to_string())
+            Err(RuntimeError::new("Not a number"))
         }
     }
 }
@@ -329,7 +334,7 @@ pub trait StackMachine<Item> {
     fn swap(&mut self);
     /// Pop one item as operator and `usize` items as operands, evaluate the
     /// expression, then push the result into the stack.
-    fn apply(&mut self, nargs: usize) -> Result<(), String>;
+    fn apply(&mut self, nargs: usize) -> Result<(), RuntimeError>;
 }
 
 impl StackMachine<usize> for Runtime {
@@ -349,11 +354,13 @@ impl StackMachine<usize> for Runtime {
         swap(&mut left[len - 2], &mut right[0]);
     }
 
-    fn apply(&mut self, nargs: usize) -> Result<(), String> {
+    fn apply(&mut self, nargs: usize) -> Result<(), RuntimeError> {
         let index = self.pop();
         let operator = self.get_symbol(index)?;
         match operator {
-            Symbol::Nil | Symbol::T => Err(format!("{self} can not be the head of a list")),
+            Symbol::Nil | Symbol::T => Err(RuntimeError::new(format!(
+                "{self} can not be the head of a list"
+            ))),
             Symbol::Add => arith_op!(self, nargs, +),
             Symbol::Mul => arith_op!(self, nargs, *),
             Symbol::Sub => arith_op!(self, nargs, -),
@@ -367,11 +374,11 @@ impl StackMachine<usize> for Runtime {
                 {
                     Number::Int(lhs % rhs).load_to(self)
                 } else {
-                    Err(format!(
+                    Err(RuntimeError::new(format!(
                         "Expected two integers, found {} and {}",
                         self.display_node_idx(lhs),
                         self.display_node_idx(rhs)
-                    ))
+                    )))
                 }
             }
             Symbol::Quotient => {
@@ -383,11 +390,11 @@ impl StackMachine<usize> for Runtime {
                 {
                     Number::Int(lhs / rhs).load_to(self)
                 } else {
-                    Err(format!(
+                    Err(RuntimeError::new(format!(
                         "Expected two integers, found {} and {}",
                         self.display_node_idx(lhs),
                         self.display_node_idx(rhs)
-                    ))
+                    )))
                 }
             }
             Symbol::Eq => {
@@ -425,7 +432,7 @@ impl StackMachine<usize> for Runtime {
                     self.push(car);
                     Ok(())
                 } else {
-                    Err(format!("{node_str} is not a pair"))
+                    Err(RuntimeError::new(format!("{node_str} is not a pair")))
                 }
             }
             Symbol::Cdr => {
@@ -437,7 +444,7 @@ impl StackMachine<usize> for Runtime {
                     self.push(cdr);
                     Ok(())
                 } else {
-                    Err(format!("{node_str} is not a pair"))
+                    Err(RuntimeError::new(format!("{node_str} is not a pair")))
                 }
             }
             Symbol::Cons => {
@@ -742,32 +749,44 @@ impl Runtime {
         self.get_area_mut(active).get_mut(index).unwrap()
     }
     /// Get the underlying C function pointer of a closure.
-    pub fn get_c_func(&self, index: usize) -> Result<Option<CVoidFunc>, String> {
+    pub fn get_c_func(&self, index: usize) -> Result<Option<CVoidFunc>, RuntimeError> {
         if let RuntimeNode::Closure(c) = self.get_node(true, index) {
             Ok(Some(c.body))
         } else {
-            Err(format!("{} is not a number", self.display_node_idx(index)))
+            Err(RuntimeError::new(format!(
+                "{} is not a number",
+                self.display_node_idx(index)
+            )))
         }
     }
-    pub fn get_number(&self, index: usize) -> Result<Number, String> {
+    pub fn get_number(&self, index: usize) -> Result<Number, RuntimeError> {
         if let RuntimeNode::Number(val) = self.get_node(true, index) {
             Ok(val.clone())
         } else {
-            Err(format!("{} is not a number", self.display_node_idx(index)))
+            Err(RuntimeError::new(format!(
+                "{} is not a number",
+                self.display_node_idx(index)
+            )))
         }
     }
-    pub fn get_symbol(&self, index: usize) -> Result<Symbol, String> {
+    pub fn get_symbol(&self, index: usize) -> Result<Symbol, RuntimeError> {
         if let RuntimeNode::Symbol(val) = self.get_node(true, index) {
             Ok(val.clone())
         } else {
-            Err(format!("{} is not a symbol", self.display_node_idx(index)))
+            Err(RuntimeError::new(format!(
+                "{} is not a symbol",
+                self.display_node_idx(index)
+            )))
         }
     }
-    pub fn get_pair(&self, index: usize) -> Result<(usize, usize), String> {
+    pub fn get_pair(&self, index: usize) -> Result<(usize, usize), RuntimeError> {
         if let RuntimeNode::Pair(car, cdr) = self.get_node(true, index) {
             Ok((*car, *cdr))
         } else {
-            Err(format!("{} is not a pair", self.display_node_idx(index)))
+            Err(RuntimeError::new(format!(
+                "{} is not a pair",
+                self.display_node_idx(index)
+            )))
         }
     }
 }
@@ -843,19 +862,22 @@ impl Runtime {
     ///
     /// The first element popped has name `#0_func_{func_id}`, the second
     /// element popped has name `#1_func_{func_id}`, etc.
-    pub fn prepare_args(&mut self, cid: usize, nparams: usize) -> Result<(), String> {
+    pub fn prepare_args(&mut self, cid: usize, nparams: usize) -> Result<(), RuntimeError> {
         let c = if let RuntimeNode::Closure(c) = self.get_node(true, cid) {
             Ok(c)
         } else {
-            Err(format!("{} is not a closure", self.display_node_idx(cid)))
+            Err(RuntimeError::new(format!(
+                "{} is not a closure",
+                self.display_node_idx(cid)
+            )))
         }?
         .clone();
 
         if (!c.variadic && c.nargs != nparams) || (c.variadic && c.nargs > nparams) {
-            return Err(format!(
+            return Err(RuntimeError::new(format!(
                 "arity mismatch: expect {}, found {}",
                 c.nargs, nparams
-            ));
+            )));
         }
 
         // Construct and move to an environment.
@@ -974,25 +996,41 @@ impl Runtime {
         area[dst] = src_val.clone();
     }
 
-    pub fn set_car(&mut self, active: bool, index: usize, target: usize) -> Result<(), String> {
+    pub fn set_car(
+        &mut self,
+        active: bool,
+        index: usize,
+        target: usize,
+    ) -> Result<(), RuntimeError> {
         let area = self.get_area_mut(active);
         let box_val = area.get_mut(index).unwrap();
         if let RuntimeNode::Pair(car, _) = box_val {
             *car = target;
             Ok(())
         } else {
-            Err(format!("{} is not a pair", self.display_node_idx(index)))
+            Err(RuntimeError::new(format!(
+                "{} is not a pair",
+                self.display_node_idx(index)
+            )))
         }
     }
 
-    pub fn set_cdr(&mut self, active: bool, index: usize, target: usize) -> Result<(), String> {
+    pub fn set_cdr(
+        &mut self,
+        active: bool,
+        index: usize,
+        target: usize,
+    ) -> Result<(), RuntimeError> {
         let area = self.get_area_mut(active);
         let box_val = area.get_mut(index).unwrap();
         if let RuntimeNode::Pair(_, cdr) = box_val {
             *cdr = target;
             Ok(())
         } else {
-            Err(format!("{} is not a pair", self.display_node_idx(index)))
+            Err(RuntimeError::new(format!(
+                "{} is not a pair",
+                self.display_node_idx(index)
+            )))
         }
     }
 
