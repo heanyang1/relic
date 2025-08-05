@@ -1,31 +1,12 @@
 //! The parser module.
 
-use std::fmt::Display;
 use std::str::FromStr;
 
+use crate::error::ParseError;
 use crate::lexer::{Lexer, TokenType};
 use crate::nil;
 use crate::node::Node;
 use crate::symbol::{SpecialForm, Symbol};
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ParseError {
-    SyntaxError(String),
-    EOF,
-}
-
-impl Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                ParseError::SyntaxError(s) => s,
-                ParseError::EOF => "Unexpected EOF",
-            }
-        )
-    }
-}
 
 pub trait Parse {
     fn parse(tokens: &mut Lexer) -> Result<Self, ParseError>

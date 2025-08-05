@@ -8,11 +8,12 @@ use std::{
 use relic::{
     RT,
     compile::{CodeGen, compile},
+    error::ParseError,
     file_to_node,
     lexer::Lexer,
     logger::{LogLevel, log_error, set_log_level, unwrap_result},
     node::Node,
-    parser::{Parse, ParseError},
+    parser::Parse,
     preprocess::PreProcess,
     rt_start, run_node,
     runtime::StackMachine,

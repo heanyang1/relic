@@ -5,7 +5,7 @@ impl From<String> for RuntimeError {
     }
 }
 
-use std::backtrace::Backtrace;
+use std::{backtrace::Backtrace, error::Error, fmt::{Display, Formatter}};
 
 #[derive(Debug)]
 pub struct RuntimeError {
@@ -22,10 +22,30 @@ impl RuntimeError {
     }
 }
 
-impl std::fmt::Display for RuntimeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for RuntimeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}\nBacktrace:\n{}", self.message, self.backtrace)
     }
 }
 
-impl std::error::Error for RuntimeError {}
+impl Error for RuntimeError {}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ParseError {
+    SyntaxError(String),
+    EOF,
+}
+
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ParseError::SyntaxError(s) => s,
+                ParseError::EOF => "Unexpected EOF",
+            }
+        )
+    }
+}
+impl Error for ParseError {}
