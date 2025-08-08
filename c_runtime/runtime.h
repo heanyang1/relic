@@ -35,7 +35,6 @@ extern void rt_swap(void);
 extern char *rt_display_node_idx(size_t index);
 
 // Environment
-extern size_t rt_new_env(const char *name, size_t outer);
 extern void rt_move_to_env(size_t env);
 extern size_t rt_current_env();
 extern void rt_define(const char *name, size_t value);

@@ -244,20 +244,6 @@ pub extern "C" fn rt_new_float(value: f64) {
     Number::Float(value).load_to(&mut rt).unwrap()
 }
 
-/// Calls [Runtime::new_env].
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_new_env(name: *const u8, outer: usize) -> usize {
-    let mut rt = RT.lock().unwrap();
-    let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
-    if let Ok(name_str) = c_str.to_str() {
-        rt.api_called(format!("rt_new_env({name_str}, {outer})"));
-        rt.new_env(name_str.to_string(), outer)
-    } else {
-        log_error("Error in rt_new_env: invalid string");
-        0
-    }
-}
-
 /// Calls [Runtime::current_env].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_current_env() -> usize {

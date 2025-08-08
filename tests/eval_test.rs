@@ -1,4 +1,5 @@
 use relic::lexer::{Lexer, Number};
+use relic::logger::set_log_level;
 use relic::node::Node;
 use relic::parser::Parse;
 use relic::preprocess::PreProcess;
@@ -8,6 +9,7 @@ use relic::{RT, file_to_node, rt_pop, rt_start, run_node};
 use serial_test::serial;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Command;
 use std::str::FromStr;
 
 macro_rules! assert_eval_node {
@@ -632,6 +634,36 @@ fn test_cycle() {
     assert_eval_text!("(make-cycle2 (list 'a 'b 'c))", "(a b c . #0#)");
     let mut runtime = RT.lock().unwrap();
     runtime.clear();
+}
+
+#[test]
+#[serial]
+fn run_c_test() {
+    set_log_level(relic::logger::LogLevel::Debug);
+    let status = Command::new("gcc")
+        .args([
+            "-Ic_runtime",
+            "-shared",
+            "-fPIC",
+            "-O3",
+            "-g",
+            "-o",
+            "lib/test.relic",
+            "tests/test.c",
+            #[cfg(target_os = "macos")]
+            "-Wl,-undefined,dynamic_lookup",
+        ])
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
+    println!("{status}");
+    assert!(status.success());
+    rt_start();
+    assert_eval_node!("(import test)", RuntimeNode::Symbol(Symbol::Nil));
+    let mut runtime = RT.lock().unwrap();
+    runtime.clear();
+    std::fs::remove_file("lib/test.relic").unwrap();
 }
 
 #[test]
