@@ -16,7 +16,6 @@ _rt_new_constant
 _rt_new_symbol
 _rt_new_integer
 _rt_new_float
-_rt_new_env
 _rt_current_env
 _rt_move_to_env
 _rt_define

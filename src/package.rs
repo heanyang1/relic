@@ -78,7 +78,7 @@ impl Node {
         // load library
         let lib = load_library(&lib_full_name)?;
         call_library_fn(&lib, &lib_name)?;
-        let mut runtime = RT.lock().unwrap();
+        let mut runtime = RT.write().unwrap();
         runtime.add_package(lib_name, lib);
 
         Ok(())

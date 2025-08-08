@@ -146,11 +146,11 @@ fn main() {
                 rt_start();
                 set_log_level(LogLevel::Debug);
                 {
-                    let mut runtime = RT.lock().unwrap();
+                    let mut runtime = RT.write().unwrap();
                     runtime.begin_debug();
                 }
                 unwrap_result(node.jit_compile(true), ());
-                let mut runtime = RT.lock().unwrap();
+                let mut runtime = RT.write().unwrap();
                 let index = runtime.pop();
                 println!("result: {}", runtime.display_node_idx(index))
             }

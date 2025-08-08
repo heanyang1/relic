@@ -33,7 +33,7 @@ fn compile_and_load(input: &str, lib_name: &str) {
             &format!("./lib/{}.relic", lib_name),
             &format!("/tmp/relic_{}.c", lib_name),
             #[cfg(target_os = "macos")]
-            "-Wl,-undefined,dynamic_lookup"
+            "-Wl,-undefined,dynamic_lookup",
         ])
         .spawn()
         .unwrap()
@@ -57,10 +57,11 @@ fn compile_test_simple() {
     compile_and_load("(define x (+ 1 2))", "mylib");
 
     let x = get_value("x");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_number(x).unwrap();
     assert_eq!(val, Number::Int(3));
     runtime.clear();
+    std::fs::remove_file("lib/mylib.relic").unwrap();
 }
 
 fn compile(input: &str, filename: &str, output: &str) {
@@ -115,7 +116,7 @@ fn test_cycle() {
     let z = get_value("z");
     let z2 = get_value("z2");
 
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.display_node_idx(z);
     assert_eq!(val, "(a b #0#)");
     let val = runtime.display_node_idx(z2);
@@ -135,7 +136,7 @@ fn test_delay() {
     compile(code, "delay", "1");
     compile_and_load(code, "delay");
     let x = get_value("x");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_number(x).unwrap();
     assert_eq!(val, Number::Int(1));
     runtime.clear();
@@ -152,7 +153,7 @@ fn test_set_car() {
     compile(code, "set_car", "(4 2 3)");
     compile_and_load(code, "set_car");
     let x = get_value("x");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.display_node_idx(x);
     assert_eq!(val, "(4 2 3)");
     runtime.clear();
@@ -169,7 +170,7 @@ fn test_set_cdr() {
     compile(code, "set_cdr", "(1 4 5 6)");
     compile_and_load(code, "set_cdr");
     let x = get_value("x");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.display_node_idx(x);
     assert_eq!(val, "(1 4 5 6)");
     runtime.clear();
@@ -189,7 +190,7 @@ fn test_fact() {
     compile(code, "fact", "120");
     compile_and_load(code, "fact");
     let x = get_value("x");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_number(x).unwrap();
     assert_eq!(val, Number::Int(120));
     runtime.clear();
@@ -213,7 +214,7 @@ fn test_or() {
     let x1 = get_value("x1");
     let x2 = get_value("x2");
     let x3 = get_value("x3");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_symbol(x1).unwrap();
     assert_eq!(val, Symbol::Nil);
     let val = runtime.get_number(x2).unwrap();
@@ -241,7 +242,7 @@ fn test_and() {
     let x1 = get_value("x1");
     let x2 = get_value("x2");
     let x3 = get_value("x3");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_symbol(x1).unwrap();
     assert_eq!(val, Symbol::T);
     let val = runtime.get_symbol(x2).unwrap();
@@ -273,7 +274,7 @@ fn test_cond() {
     let x2 = get_value("x2");
     let x3 = get_value("x3");
     let x4 = get_value("x4");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_number(x1).unwrap();
     assert_eq!(val, Number::Int(1));
     let val = runtime.get_number(x2).unwrap();
@@ -334,7 +335,7 @@ fn test_lambda_pattern_matching() {
     let x3 = get_value("x3");
     let x4 = get_value("x4");
     let x5 = get_value("x5");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_symbol(x1).unwrap();
     assert_eq!(val, Symbol::User("a".to_string()));
     let val = runtime.get_number(x2).unwrap();
@@ -383,7 +384,7 @@ fn test_set() {
     let x = get_value("x");
     let x1 = get_value("x1");
     let x2 = get_value("x2");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_number(x1).unwrap();
     assert_eq!(val, Number::Int(1));
     let val = runtime.get_number(x2).unwrap();
@@ -413,7 +414,7 @@ fn test_fib() {
     compile(code, "fib", "(0 1 1 2 3 5 8 13 21 34 55)");
     compile_and_load(code, "fib");
     let z = get_value("z");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.display_node_idx(z);
     assert_eq!(val, "(0 1 1 2 3 5 8 13 21 34 55)");
     runtime.clear();
@@ -436,7 +437,7 @@ fn test_reverse() {
     compile(code, "reverse", "(10 9 8 7 6 5 4 3 2 1)");
     compile_and_load(code, "reverse");
     let z = get_value("z");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.display_node_idx(z);
     assert_eq!(val, "(10 9 8 7 6 5 4 3 2 1)");
     runtime.clear();
@@ -460,7 +461,7 @@ fn test_reverse_2() {
     compile(code, "reverse_2", "(10 9 8 7 6 5 4 3 2 1)");
     compile_and_load(code, "reverse_2");
     let z = get_value("z");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.display_node_idx(z);
     assert_eq!(val, "(10 9 8 7 6 5 4 3 2 1)");
     runtime.clear();
@@ -491,7 +492,7 @@ fn test_sqrt() {
     compile(code, "sqrt", "1.4142156862745097");
     compile_and_load(code, "sqrt");
     let z = get_value("z");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     let val = runtime.get_number(z).unwrap();
     assert_eq!(val, Number::Float(1.4142156862745097));
     runtime.clear();

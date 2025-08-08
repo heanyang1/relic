@@ -21,11 +21,11 @@ macro_rules! assert_eval_node {
 
         node.jit_compile(true).unwrap();
         let expected = {
-            let mut runtime = RT.lock().unwrap();
+            let mut runtime = RT.write().unwrap();
             runtime.new_node_with_gc($expected)
         };
         let index = rt_pop();
-        assert!(RT.lock().unwrap().node_eq(index, expected));
+        assert!(RT.read().unwrap().node_eq(index, expected));
     }};
 
     ($code:expr, $expected:expr, $macros:expr) => {{
@@ -35,11 +35,11 @@ macro_rules! assert_eval_node {
 
         node.jit_compile(true).unwrap();
         let expected = {
-            let mut runtime = RT.lock().unwrap();
+            let mut runtime = RT.write().unwrap();
             runtime.new_node_with_gc($expected)
         };
         let index = rt_pop();
-        assert!(RT.lock().unwrap().node_eq(index, expected));
+        assert!(RT.read().unwrap().node_eq(index, expected));
     }};
 }
 
@@ -52,7 +52,7 @@ macro_rules! assert_eval_text {
 
         node.jit_compile(true).unwrap();
         let index = rt_pop();
-        let actual = RT.lock().unwrap().display_node_idx(index);
+        let actual = RT.read().unwrap().display_node_idx(index);
         assert_eq!(actual, $expected);
     }};
 
@@ -79,7 +79,7 @@ fn test_primitive() {
         RuntimeNode::Symbol(Symbol::User("hello  ".to_string()))
     );
 
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 #[test]
@@ -99,7 +99,7 @@ fn test_simple_arithmetic() {
     assert_eval_node!("(/ 6.0 3.0)", RuntimeNode::Number(Number::Float(2.0)));
     assert_eval_node!("(+ 1 2.0)", RuntimeNode::Number(Number::Float(3.0)));
     assert_eval_node!("(- 3.0 2)", RuntimeNode::Number(Number::Float(1.0)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -111,7 +111,7 @@ fn test_with_symbol() {
     assert_eval_node!("(- x 2)", RuntimeNode::Number(Number::Int(0)));
     assert_eval_node!("(* 3 x)", RuntimeNode::Number(Number::Int(6)));
     assert_eval_node!("(/ 6 x)", RuntimeNode::Number(Number::Int(3)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -124,7 +124,7 @@ fn test_nested_arithmetic() {
         "(* (/ 1 2) (+ 3 4))",
         RuntimeNode::Number(Number::Float(3.5))
     );
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -143,7 +143,7 @@ fn test_relational_operators() {
     assert_eval_node!("(>= 1 1)", RuntimeNode::Symbol(Symbol::T));
     assert_eval_node!("(>= 1 2)", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(>= 2 1)", RuntimeNode::Symbol(Symbol::T));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -155,7 +155,7 @@ fn test_toplevel_symbol() {
     assert_eval_node!("-", RuntimeNode::Symbol(Symbol::Sub));
     assert_eval_node!("*", RuntimeNode::Symbol(Symbol::Mul));
     assert_eval_node!("/", RuntimeNode::Symbol(Symbol::Div));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -192,7 +192,7 @@ fn test_define() {
     assert_eval_node!("(define y (+ x 1))", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("x", RuntimeNode::Number(Number::Int(1)));
     assert_eval_node!("y", RuntimeNode::Number(Number::Int(2)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -217,7 +217,7 @@ fn test_define_syntax_rule() {
         RuntimeNode::Number(Number::Int(1)),
         macros
     );
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -233,7 +233,7 @@ fn test_lambda() {
         "((lambda (x y) (+ x y)) 2 3)",
         RuntimeNode::Number(Number::Int(5))
     );
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -249,7 +249,7 @@ fn test_lambda_with_define() {
     );
     assert_eval_node!("(func 2)", RuntimeNode::Number(Number::Int(3)));
     assert_eval_node!("(func x)", RuntimeNode::Number(Number::Int(2)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -268,7 +268,7 @@ fn test_lambda_scope() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_node!("(h 1)", RuntimeNode::Number(Number::Int(2)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -293,7 +293,7 @@ fn test_lambda_pattern_matching() {
     assert_eval_node!("(h 1 2 3 4)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(h 1 2)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(h 1 't)", RuntimeNode::Symbol(Symbol::T));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -315,7 +315,7 @@ fn test_function_call() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_node!("(a '(1 2 3))", RuntimeNode::Number(Number::Int(1)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -328,7 +328,7 @@ fn test_atom() {
     assert_eval_node!("(atom? (list 1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(atom? 'a)", RuntimeNode::Symbol(Symbol::T));
     assert_eval_node!("(atom? '())", RuntimeNode::Symbol(Symbol::T));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -346,7 +346,7 @@ fn test_eq() {
         "(eq? '(1 2 3) (list 1 2 3))",
         RuntimeNode::Symbol(Symbol::T)
     );
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -359,7 +359,7 @@ fn test_number() {
     assert_eval_node!("(number? 'a)", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(number? '())", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(number? 'a)", RuntimeNode::Symbol(Symbol::Nil));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -380,7 +380,7 @@ fn test_cond() {
         "(cond ((> 1 2) 1) ((> 1 2) 2))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -391,7 +391,7 @@ fn test_and() {
     assert_eval_node!("(and)", RuntimeNode::Symbol(Symbol::T));
     assert_eval_node!("(and '() 2 3)", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(and 1 2 3)", RuntimeNode::Number(Number::Int(3)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -402,7 +402,7 @@ fn test_or() {
     assert_eval_node!("(or)", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(or '() 2 3)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(or 1 2 3)", RuntimeNode::Number(Number::Int(1)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -419,7 +419,7 @@ fn test_fact() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_node!("(fact 5 1)", RuntimeNode::Number(Number::Int(120)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -450,7 +450,7 @@ fn test_fib() {
         "(map fib '(0 1 2 3 4 5 6 7 8 9))",
         "(1 1 2 3 5 8 13 21 34 55)"
     );
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -467,7 +467,7 @@ fn test_set() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_node!("x", RuntimeNode::Number(Number::Int(3)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -478,7 +478,7 @@ fn test_set_car() {
     assert_eval_node!("(define x '(1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(set-car! x 4)", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_text!("x", "(4 2 3)");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -496,7 +496,7 @@ fn test_set_cdr() {
     assert_eval_node!("(set! x (cons 2 3))", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(g x)", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_text!("x", "(2 . 1)");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -510,7 +510,7 @@ fn test_begin() {
         RuntimeNode::Number(Number::Int(1))
     );
     assert_eval_node!("y", RuntimeNode::Number(Number::Int(2)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -526,7 +526,7 @@ fn test_let() {
         "(let ((x 1) (y 2)) (begin (define z (+ x y)) z))",
         RuntimeNode::Number(Number::Int(3))
     );
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -538,7 +538,7 @@ fn test_if() {
     assert_eval_node!("(if 0 2 3)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(if 't 2 3)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(if '() 2 3)", RuntimeNode::Number(Number::Int(3)));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -576,7 +576,7 @@ fn test_reverse_list() {
     );
     assert_eval_text!("(reverse '(1 2 3 4))", "(4 3 2 1)");
     assert_eval_text!("(reverse-sugar '(1 2 3 4))", "(4 3 2 1)");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -600,7 +600,7 @@ fn test_delay() {
         RuntimeNode::Number(Number::Int(1)),
         macros
     );
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -632,7 +632,7 @@ fn test_cycle() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_text!("(make-cycle2 (list 'a 'b 'c))", "(a b c . #0#)");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
 
@@ -661,7 +661,7 @@ fn run_c_test() {
     assert!(status.success());
     rt_start();
     assert_eval_node!("(import test)", RuntimeNode::Symbol(Symbol::Nil));
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
     std::fs::remove_file("lib/test.relic").unwrap();
 }
@@ -676,6 +676,6 @@ fn run_examples() {
     )
     .unwrap();
     assert_eq!(run_node(node), "(1 1 2 3 5 8 13 21 34 55)");
-    let mut runtime = RT.lock().unwrap();
+    let mut runtime = RT.write().unwrap();
     runtime.clear();
 }

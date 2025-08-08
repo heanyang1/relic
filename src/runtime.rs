@@ -464,8 +464,7 @@ impl StackMachine<usize> for Runtime {
                 })
                 .load_to(self)
             }
-            // Calling `call_closure` here causes deadlock.
-            Symbol::User(_) => panic!("Use `call_closure` to apply closure"),
+            Symbol::User(_) => panic!("You should call the closure's function in C"),
         }
     }
 }
