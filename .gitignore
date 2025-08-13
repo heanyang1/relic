@@ -2,5 +2,6 @@
 tarpaulin-report.html
 compile_commands.json
 .cache
+.relic_history
 *.dot
 *.svg

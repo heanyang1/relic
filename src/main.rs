@@ -1,9 +1,6 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{self, Write},
-    path::PathBuf,
-};
+use std::{collections::HashMap, fs::File, io::Write, path::PathBuf};
+
+use rustyline::{Editor, error::ReadlineError};
 
 use relic::{
     RT,
@@ -87,34 +84,81 @@ fn main() {
                 println!("result: {}", run_node(node));
             }
 
+            // Initialize rustyline editor with default configuration
+            let mut rl = Editor::<(), _>::new().unwrap();
+            let _ = rl.load_history(".relic_history");
+
+            println!("Relic REPL. Press Ctrl+D or type 'exit' to quit.");
+
             // start REPL
-            let mut input = String::new();
+            let mut input_buffer = String::new();
+            let prompt = ">>> ";
+            let continuation_prompt = "... ";
+
             loop {
-                if input.is_empty() {
-                    print!("> ");
-                }
-                io::stdout().flush().unwrap();
-                let read_result = unwrap_result(io::stdin().read_line(&mut input), 0);
-                if read_result == 0 {
-                    // An error occur, or C-d is pressed
-                    println!("Quit");
-                    return;
-                }
-                let mut tokens = Lexer::new(&input);
-                let mut node = match Node::parse(&mut tokens) {
-                    Ok(node) => {
-                        input.clear();
-                        node
+                let current_prompt = if input_buffer.is_empty() {
+                    prompt
+                } else {
+                    continuation_prompt
+                };
+                let readline = rl.readline(current_prompt);
+
+                match readline {
+                    Ok(line) => {
+                        // Add the line to our buffer
+                        if !input_buffer.is_empty() {
+                            input_buffer.push('\n');
+                        }
+                        input_buffer.push_str(&line);
+
+                        // Check for exit command
+                        if input_buffer.trim().eq_ignore_ascii_case("exit") {
+                            break;
+                        }
+
+                        // Try to parse the input
+                        let mut tokens = Lexer::new(&input_buffer);
+                        match Node::parse(&mut tokens) {
+                            Ok(mut node) => {
+                                // Successful parse, execute and clear buffer
+                                node = unwrap_result(
+                                    node.preprocess(&mut macros),
+                                    Node::Symbol(Symbol::Nil),
+                                );
+                                println!("= {}", run_node(node));
+                                rl.add_history_entry(input_buffer.trim()).unwrap();
+                                input_buffer.clear();
+                            }
+                            Err(ParseError::EOF) => {
+                                // Need more input, continue the loop
+                                continue;
+                            }
+                            Err(ParseError::SyntaxError(msg)) => {
+                                // Syntax error
+                                log_error(msg);
+                                input_buffer.clear();
+                            }
+                        }
                     }
-                    Err(ParseError::EOF) => continue,
-                    Err(ParseError::SyntaxError(msg)) => {
-                        log_error(msg);
+                    Err(ReadlineError::Interrupted) => {
+                        // Clear buffer and continue
+                        input_buffer.clear();
                         continue;
                     }
-                };
-                node = unwrap_result(node.preprocess(&mut macros), Node::Symbol(Symbol::Nil));
-                println!("{}", run_node(node));
+                    Err(ReadlineError::Eof) => {
+                        // Exit
+                        println!("CTRL-D");
+                        break;
+                    }
+                    Err(err) => {
+                        println!("Error: {:?}", err);
+                        break;
+                    }
+                }
             }
+
+            // Save command history
+            rl.save_history(".relic_history").unwrap();
         }
         Mode::Compile => {
             let mut codegen = match cli.package_name {

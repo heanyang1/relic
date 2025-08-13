@@ -89,7 +89,6 @@ where
     T: ToString,
 {
     LOGGER.lock().unwrap().error(msg.to_string());
-    abort();
 }
 pub fn set_log_level(level: LogLevel) {
     LOGGER.lock().unwrap().set_log_level(level);
