@@ -22,7 +22,7 @@ fn compile_and_load(input: &str, lib_name: &str) {
         compile::compile(&node, &mut codegen, false).unwrap();
     }
     let c_code = codegen.to_string();
-    std::fs::write(format!("/tmp/relic_{}.c", lib_name), c_code).unwrap();
+    std::fs::write(format!("/tmp/relic_{lib_name}.c"), c_code).unwrap();
 
     let status = Command::new("gcc")
         .args([
@@ -30,8 +30,8 @@ fn compile_and_load(input: &str, lib_name: &str) {
             "-shared",
             "-fPIC",
             "-o",
-            &format!("./lib/{}.relic", lib_name),
-            &format!("/tmp/relic_{}.c", lib_name),
+            &format!("./lib/{lib_name}.relic"),
+            &format!("/tmp/relic_{lib_name}.c"),
             #[cfg(target_os = "macos")]
             "-Wl,-undefined,dynamic_lookup",
         ])
@@ -80,13 +80,13 @@ fn compile(input: &str, filename: &str, output: &str) {
     }
 
     std::fs::write(
-        test_dir.join(format!("{}.c", filename)),
+        test_dir.join(format!("{filename}.c")),
         codegen.to_string(),
     )
     .unwrap();
     std::fs::write(
-        test_dir.join(format!("{}.out", filename)),
-        output.to_string(),
+        test_dir.join(format!("{filename}.out")),
+        output,
     )
     .unwrap();
 }

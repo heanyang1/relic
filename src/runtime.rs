@@ -247,7 +247,7 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), RuntimeEr
             // case 1
             tokens
                 .consume(TokenType::RParem)
-                .map_err(|e| RuntimeError::new(e))?;
+                .map_err(RuntimeError::new)?;
             Symbol::Nil.load_to(runtime)
         }
         _ => {
@@ -260,7 +260,7 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), RuntimeEr
                 tokens.load_to(runtime)?;
                 tokens
                     .consume(TokenType::RParem)
-                    .map_err(|e| RuntimeError::new(e))?;
+                    .map_err(RuntimeError::new)?;
             } else {
                 // case 2
                 parse_list(tokens, runtime)?
@@ -647,7 +647,7 @@ impl Runtime {
     /// Called when a breakpoint is hit.
     pub fn breakpoint(&mut self) {
         if self.dbg_state >= DbgState::Normal {
-            log_debug(format!("Hit a breakpoint"));
+            log_debug("Hit a breakpoint".to_string());
             self.dbg_loop()
         }
     }
@@ -658,7 +658,7 @@ impl Runtime {
     pub fn evaluated(&mut self, info: &str, optimized: bool) {
         if self.dbg_state >= DbgState::Next {
             if optimized {
-                log_debug(format!("{}\n\t|-> [optimized]", info));
+                log_debug(format!("{info}\n\t|-> [optimized]"));
             } else {
                 let result = self.top();
                 log_debug(format!("{}\n\t|-> {}", info, self.display_node_idx(result)));

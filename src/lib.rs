@@ -158,7 +158,7 @@ pub extern "C" fn rt_push(index: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_pop() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_pop()"));
+    rt.api_called("rt_pop()".to_string());
     rt.pop()
 }
 
@@ -166,7 +166,7 @@ pub extern "C" fn rt_pop() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_swap() {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_swap()"));
+    rt.api_called("rt_swap()".to_string());
     rt.swap()
 }
 
@@ -174,7 +174,7 @@ pub extern "C" fn rt_swap() {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_top() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_top()"));
+    rt.api_called("rt_top()".to_string());
     rt.top()
 }
 
@@ -248,7 +248,7 @@ pub extern "C" fn rt_new_float(value: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_current_env() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_current_env()"));
+    rt.api_called("rt_current_env()".to_string());
     rt.current_env()
 }
 

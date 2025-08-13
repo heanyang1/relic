@@ -399,22 +399,19 @@ fflush(NULL);"#,
                     SpecialForm::Begin => {
                         let operands = vectorize(cdr.clone())?;
                         if !operands.is_empty() {
-                            for i in 0..operands.len() - 1 {
-                                // Keep environment, drop result
-                                operands[i].borrow().compile(
-                                    codegen,
+                            for (i, operand) in operands.iter().enumerate() {
+                                let is_last = i == operands.len() - 1;
+                                let context = if is_last {
+                                    ctx
+                                } else {
+                                    // For all but the last operand, keep environment but drop return value
                                     ContexInfo {
                                         drop_env: false,
                                         drop_ret: true,
-                                    },
-                                    dbg_info,
-                                )?;
+                                    }
+                                };
+                                operand.borrow().compile(codegen, context, dbg_info)?;
                             }
-                            operands
-                                .last()
-                                .unwrap()
-                                .borrow()
-                                .compile(codegen, ctx, dbg_info)?;
                         }
                         Ok(())
                     }

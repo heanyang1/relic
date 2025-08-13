@@ -42,12 +42,12 @@ impl Node {
         std::fs::create_dir_all("/tmp/relic").map_err(|e| e.to_string())?;
 
         let lib_name = format!("jit_{}", inc());
-        let c_source_name = format!("/tmp/relic/{}.c", lib_name);
-        let lib_full_name = format!("/tmp/relic/{}.relic", lib_name);
+        let c_source_name = format!("/tmp/relic/{lib_name}.c");
+        let lib_full_name = format!("/tmp/relic/{lib_name}.relic");
 
         // node -> .c
         let mut codegen = CodeGen::new_library(lib_name.to_string());
-        compile(&self, &mut codegen, debug_info)?;
+        compile(self, &mut codegen, debug_info)?;
         let c_code = codegen.to_string();
         std::fs::write(&c_source_name, c_code).map_err(|e| e.to_string())?;
 
