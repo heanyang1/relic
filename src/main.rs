@@ -1,19 +1,25 @@
-use std::{collections::HashMap, fs::File, io::Write, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{self, Write},
+    path::PathBuf,
+};
 
 use rustyline::{Editor, error::ReadlineError};
 
 use relic::{
     RT,
     compile::{CodeGen, compile},
+    env::Env,
     error::ParseError,
     file_to_node,
     lexer::Lexer,
-    logger::{LogLevel, log_error, set_log_level, unwrap_result},
+    logger::{LogLevel, log_debug, log_error, set_log_level, unwrap_result},
     node::Node,
     parser::Parse,
     preprocess::PreProcess,
     rt_start, run_node,
-    runtime::StackMachine,
+    runtime::{DbgState, Runtime, StackMachine},
     symbol::Symbol,
 };
 
@@ -62,6 +68,46 @@ struct Cli {
     debug_info: bool,
 }
 
+fn dbg_loop(runtime: &Runtime) -> DbgState {
+    loop {
+        print!("dbg> ");
+        io::stdout().flush().unwrap();
+        let mut buf = String::new();
+        unwrap_result(io::stdin().read_line(&mut buf), 0);
+        match buf.as_str().trim_end() {
+            "s" | "step" => {
+                return DbgState::Step;
+            }
+            "n" | "next" => {
+                return DbgState::Next;
+            }
+            "c" | "continue" => {
+                return DbgState::Normal;
+            }
+            "r" | "runtime" => log_debug(format!("{runtime}")),
+            input => {
+                match input
+                    .strip_prefix("p ")
+                    .or_else(|| input.strip_prefix("print "))
+                {
+                    Some(var) => {
+                        let env = runtime.current_env();
+                        let idx = env.get(&var.to_string(), &runtime);
+                        match idx {
+                            Some(idx) => {
+                                log_debug(format!("{var} = {}", runtime.display_node_idx(idx)))
+                            }
+                            None => log_error(format!("variable {var} not found")),
+                        };
+                    }
+                    None => log_error(
+                        "Wrong input. Available commands: (s)tep, (n)ext, (c)ontinue, (p)rint, (r)untime. Press C-c to quit.",
+                    ),
+                }
+            }
+        };
+    }
+}
 fn main() {
     let cli = Cli::parse();
 
@@ -191,6 +237,7 @@ fn main() {
                 set_log_level(LogLevel::Debug);
                 {
                     let mut runtime = RT.write().unwrap();
+                    runtime.set_callback(dbg_loop);
                     runtime.begin_debug();
                 }
                 unwrap_result(node.jit_compile(true), ());

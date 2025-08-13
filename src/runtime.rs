@@ -1,21 +1,14 @@
 //! The runtime module.
 
 use std::{
-    cell::RefCell,
-    collections::HashMap,
-    fmt::Display,
-    io::{self, Write},
-    mem::swap,
-    rc::Rc,
-    result::Result,
-    vec::Vec,
+    cell::RefCell, collections::HashMap, fmt::Display, mem::swap, rc::Rc, result::Result, vec::Vec,
 };
 
 use crate::{
     env::Env,
     error::RuntimeError,
     lexer::{Lexer, Number, TokenType},
-    logger::{log_debug, log_error, unwrap_result},
+    logger::{log_debug, log_error},
     node::Node,
     symbol::Symbol,
     util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
@@ -125,10 +118,8 @@ pub enum RuntimeNode {
 }
 
 /// Whether the runtime should enter the debugger.
-#[derive(Debug, PartialEq, PartialOrd)]
-enum DbgState {
-    /// Does not enter the debugger at all.
-    Off = 0,
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+pub enum DbgState {
     /// Enter debugger when hitting a breakpoint.
     Normal = 1,
     /// Enter debugger after evaluating an expression.
@@ -142,7 +133,6 @@ enum DbgState {
 /// To simplify bindings and avoid ownership issues, users can only get the
 /// index of the runtime node in the GC area. There are functions that retrives
 /// the content of the node through index.
-#[derive(Debug)]
 pub struct Runtime {
     /// Whether the runtime should enter the debugger.
     dbg_state: DbgState,
@@ -164,6 +154,8 @@ pub struct Runtime {
     /// This field is not used, but we need to keep it so that we can use the
     /// C function pointers inside the shared library.
     packages: HashMap<String, Library>,
+    /// Callback function called when a breakpoint is hit.
+    dbg_callback: Option<Box<dyn Fn(&Self) -> DbgState + Sync + Send + 'static>>,
 }
 
 impl Display for Runtime {
@@ -323,13 +315,15 @@ macro_rules! arith_op {
 ///   operation. The registers are implemented by a hash map and the stack is a
 ///   vector, both of them takes (amortized) O(1) time to insert and delete.
 pub trait StackMachine<Item> {
+    /// Whether the stack is empty.
+    fn empty(&self) -> bool;
     /// Push an item to the stack.
     fn push(&mut self, item: Item);
     /// Pop an item from the stack. Panics when stack underflow.
     fn pop(&mut self) -> Item;
     /// Get the top item from the stack. Doesn't pop the item. Panics when
     /// stack underflow.
-    fn top(&mut self) -> Item;
+    fn top(&self) -> Item;
     /// Swap the top two elements in the stack. Panics when stack underflow.
     fn swap(&mut self);
     /// Pop one item as operator and `usize` items as operands, evaluate the
@@ -338,13 +332,16 @@ pub trait StackMachine<Item> {
 }
 
 impl StackMachine<usize> for Runtime {
+    fn empty(&self) -> bool {
+        self.stack.is_empty()
+    }
     fn push(&mut self, index: usize) {
         self.stack.push(index);
     }
     fn pop(&mut self) -> usize {
         self.stack.pop().expect("Stack underflow")
     }
-    fn top(&mut self) -> usize {
+    fn top(&self) -> usize {
         *self.stack.iter().last().expect("Stack underflow")
     }
     fn swap(&mut self) {
@@ -599,81 +596,59 @@ impl Runtime {
     }
 }
 
-// Debugger
+// Debugger support
 impl Runtime {
-    fn dbg_loop(&mut self) {
-        loop {
-            print!("dbg> ");
-            io::stdout().flush().unwrap();
-            let mut buf = String::new();
-            unwrap_result(io::stdin().read_line(&mut buf), 0);
-            match buf.as_str().trim_end() {
-                "s" | "step" => {
-                    self.dbg_state = DbgState::Step;
-                    return;
-                }
-                "n" | "next" => {
-                    self.dbg_state = DbgState::Next;
-                    return;
-                }
-                "c" | "continue" => {
-                    self.dbg_state = DbgState::Normal;
-                    return;
-                }
-                "r" | "runtime" => log_debug(format!("{self}")),
-                input => {
-                    match input
-                        .strip_prefix("p ")
-                        .or_else(|| input.strip_prefix("print "))
-                    {
-                        Some(var) => {
-                            let env = self.current_env();
-                            let idx = env.get(&var.to_string(), self);
-                            match idx {
-                                Some(idx) => {
-                                    log_debug(format!("{var} = {}", self.display_node_idx(idx)))
-                                }
-                                None => log_error(format!("variable {var} not found")),
-                            };
-                        }
-                        None => log_error(
-                            "Wrong input. Available commands: (s)tep, (n)ext, (c)ontinue, (p)rint, (r)untime. Press C-c to quit.",
-                        ),
-                    }
-                }
-            };
-        }
+    /// Set debug callback function. Users can only set it once.
+    pub fn set_callback<T>(&mut self, callback: T)
+    where
+        T: Fn(&Self) -> DbgState + Sync + Send + 'static,
+    {
+        assert!(self.dbg_callback.is_none());
+        self.dbg_callback = Some(Box::new(callback));
     }
+    /// Set debug level.
+    pub fn set_dbg_level(&mut self, level: DbgState) {
+        self.dbg_state = level
+    }
+
+    /// Calls the callback function if there is one.
+    fn interrupt(&mut self, level: DbgState, msg: String) {
+        let next_state = match (&self.dbg_callback, self.dbg_state) {
+            (Some(func), s) if s >= level => {
+                log_debug(msg);
+                func(&self)
+            }
+            (_, s) => s,
+        };
+        self.dbg_state = next_state;
+    }
+
     /// Called when a breakpoint is hit.
     pub fn breakpoint(&mut self) {
-        if self.dbg_state >= DbgState::Normal {
-            log_debug("Hit a breakpoint".to_string());
-            self.dbg_loop()
-        }
+        self.interrupt(DbgState::Normal, "Hit a breakpoint".to_string());
     }
 
     /// This statement is inserted by the compiler as debug information.
-    /// if `optimized` is true, then the return value is optimized and
-    /// not on the stack.
+    /// if `optimized` is true, then the return value will be printed as
+    /// [optimized].
     pub fn evaluated(&mut self, info: &str, optimized: bool) {
-        if self.dbg_state >= DbgState::Next {
-            if optimized {
-                log_debug(format!("{info}\n\t|-> [optimized]"));
-            } else {
-                let result = self.top();
-                log_debug(format!("{}\n\t|-> {}", info, self.display_node_idx(result)));
-            }
-            self.dbg_loop()
-        }
+        let msg = if optimized {
+            format!("{info}\n\t|-> [optimized]")
+        } else {
+            let result = self.top();
+            format!("{}\n\t|-> {}", info, self.display_node_idx(result))
+        };
+        self.interrupt(DbgState::Next, msg);
     }
+
+    /// Called when a runtime API is called.
     pub fn api_called(&mut self, info: String) {
-        if self.dbg_state >= DbgState::Step {
-            log_debug(format!("API called: {info}"));
-            self.dbg_loop()
-        }
+        self.interrupt(DbgState::Step, format!("API called: {info}"));
     }
+
+    /// Debuggers call this to enter the debug loop.
     pub fn begin_debug(&mut self) {
-        self.dbg_loop();
+        self.interrupt(DbgState::Normal, "Relic debugger started".to_string());
     }
 }
 
@@ -681,12 +656,13 @@ impl Runtime {
 impl Runtime {
     pub fn new(size: usize) -> Runtime {
         Runtime {
-            dbg_state: DbgState::Off,
+            dbg_state: DbgState::Normal,
             stack: vec![],
             areas: (Vec::with_capacity(size), Vec::with_capacity(size)),
             size,
             roots: HashMap::new(),
             packages: HashMap::new(),
+            dbg_callback: None,
         }
     }
 
@@ -696,6 +672,7 @@ impl Runtime {
         self.packages.clear();
         self.areas.0.clear();
         self.areas.1.clear();
+        self.dbg_callback = None;
     }
 }
 

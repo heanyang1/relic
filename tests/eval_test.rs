@@ -1,9 +1,9 @@
 use relic::lexer::{Lexer, Number};
-use relic::logger::set_log_level;
+use relic::logger::{LogLevel, set_log_level};
 use relic::node::Node;
 use relic::parser::Parse;
 use relic::preprocess::PreProcess;
-use relic::runtime::RuntimeNode;
+use relic::runtime::{DbgState, Runtime, RuntimeNode, StackMachine};
 use relic::symbol::Symbol;
 use relic::{RT, file_to_node, rt_pop, rt_start, run_node};
 use serial_test::serial;
@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
+use std::sync::atomic::AtomicUsize;
 
 macro_rules! assert_eval_node {
     ($code:expr, $expected:expr) => {{
@@ -678,4 +679,33 @@ fn run_examples() {
     assert_eq!(run_node(node), "(1 1 2 3 5 8 13 21 34 55)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
+}
+
+pub static COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[test]
+#[serial]
+fn debug_test() {
+    fn test_callback(rt: &Runtime) -> DbgState {
+        if COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+            assert!(rt.empty());
+        } else {
+            println!("{}", rt.display_node_idx(rt.top()));
+        }
+        println!("{rt}");
+        DbgState::Next
+    }
+    rt_start();
+    set_log_level(LogLevel::Debug);
+    {
+        let mut runtime = RT.write().unwrap();
+        runtime.set_callback(test_callback);
+    }
+    assert_eval_node!("(define (f x) (* x 2))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node!("(breakpoint)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node!("(+ 1 (f 2))", RuntimeNode::Number(Number::Int(5)));
+    {
+        let mut runtime = RT.write().unwrap();
+        runtime.clear();
+    }
 }

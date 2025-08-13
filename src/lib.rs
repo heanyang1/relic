@@ -1,5 +1,5 @@
 pub mod compile;
-mod env;
+pub mod env;
 pub mod error;
 pub mod lexer;
 pub mod logger;
