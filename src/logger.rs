@@ -1,7 +1,6 @@
 //! The logger module.
 
 use std::{
-    process::abort,
     str::FromStr,
     sync::{LazyLock, Mutex},
 };

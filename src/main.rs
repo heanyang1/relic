@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{self, Write},
-    path::PathBuf,
-};
+use std::{collections::HashMap, fs::File, io::Write, path::PathBuf};
 
 use rustyline::{Editor, error::ReadlineError};
 
@@ -69,45 +64,74 @@ struct Cli {
 }
 
 fn dbg_loop(runtime: &Runtime) -> DbgState {
+    // Initialize rustyline editor with default configuration
+    let mut rl = Editor::<(), _>::new().unwrap();
+
+    // Load history from file if it exists
+    let history_path = PathBuf::from(".relic_history");
+    let _ = rl.load_history(&history_path);
+
     loop {
-        print!("dbg> ");
-        io::stdout().flush().unwrap();
-        let mut buf = String::new();
-        unwrap_result(io::stdin().read_line(&mut buf), 0);
-        match buf.as_str().trim_end() {
-            "s" | "step" => {
-                return DbgState::Step;
-            }
-            "n" | "next" => {
-                return DbgState::Next;
-            }
-            "c" | "continue" => {
-                return DbgState::Normal;
-            }
-            "r" | "runtime" => log_debug(format!("{runtime}")),
-            input => {
-                match input
-                    .strip_prefix("p ")
-                    .or_else(|| input.strip_prefix("print "))
-                {
-                    Some(var) => {
-                        let env = runtime.current_env();
-                        let idx = env.get(&var.to_string(), &runtime);
-                        match idx {
-                            Some(idx) => {
-                                log_debug(format!("{var} = {}", runtime.display_node_idx(idx)))
-                            }
-                            None => log_error(format!("variable {var} not found")),
-                        };
+        match rl.readline("dbg> ") {
+            Ok(line) => {
+                let line = line.trim_end();
+                if !line.is_empty() {
+                    if let Err(e) = rl.add_history_entry(line) {
+                        log_error(format!("Failed to add to history: {e}"));
                     }
-                    None => log_error(
-                        "Wrong input. Available commands: (s)tep, (n)ext, (c)ontinue, (p)rint, (r)untime. Press C-c to quit.",
-                    ),
+                }
+
+                let _ = rl.save_history(&history_path);
+
+                match line {
+                    "s" | "step" => {
+                        return DbgState::Step;
+                    }
+                    "n" | "next" => {
+                        return DbgState::Next;
+                    }
+                    "c" | "continue" => {
+                        return DbgState::Normal;
+                    }
+                    "r" | "runtime" => log_debug(format!("{runtime}")),
+                    input => {
+                        match input
+                            .strip_prefix("p ")
+                            .or_else(|| input.strip_prefix("print "))
+                        {
+                            Some(var) => {
+                                let env = runtime.current_env();
+                                let idx = env.get(&var.to_string(), runtime);
+                                match idx {
+                                    Some(idx) => log_debug(format!(
+                                        "{var} = {}",
+                                        runtime.display_node_idx(idx)
+                                    )),
+                                    None => log_error(format!("variable {var} not found")),
+                                };
+                            }
+                            None => log_error(
+                                "Wrong input. Available commands: (s)tep, (n)ext, (c)ontinue, (p)rint, (r)untime. Press C-c to quit.",
+                            ),
+                        }
+                    }
                 }
             }
-        };
+            Err(ReadlineError::Interrupted) => {
+                log_error("Use 'quit' or Ctrl-D to exit the debugger");
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                std::process::exit(0);
+            }
+            Err(err) => {
+                log_error(format!("Error reading line: {err}"));
+                continue;
+            }
+        }
     }
 }
+
 fn main() {
     let cli = Cli::parse();
 
@@ -197,7 +221,7 @@ fn main() {
                         break;
                     }
                     Err(err) => {
-                        println!("Error: {:?}", err);
+                        println!("Error: {err:?}");
                         break;
                     }
                 }

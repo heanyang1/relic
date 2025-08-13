@@ -128,6 +128,8 @@ pub enum DbgState {
     Step = 3,
 }
 
+type StaticFn = Box<dyn Fn(&Runtime) -> DbgState + Sync + Send + 'static>;
+
 /// The runtime.
 ///
 /// To simplify bindings and avoid ownership issues, users can only get the
@@ -155,7 +157,7 @@ pub struct Runtime {
     /// C function pointers inside the shared library.
     packages: HashMap<String, Library>,
     /// Callback function called when a breakpoint is hit.
-    dbg_callback: Option<Box<dyn Fn(&Self) -> DbgState + Sync + Send + 'static>>,
+    dbg_callback: Option<StaticFn>,
 }
 
 impl Display for Runtime {
@@ -616,7 +618,7 @@ impl Runtime {
         let next_state = match (&self.dbg_callback, self.dbg_state) {
             (Some(func), s) if s >= level => {
                 log_debug(msg);
-                func(&self)
+                func(self)
             }
             (_, s) => s,
         };
