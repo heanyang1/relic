@@ -4,7 +4,7 @@
 
 Relic (Rust-Enabled LIsp Compiler [^note1]) is a minimal, self-contained Lisp system written in Rust.
 
-[^note1]: The name used to be the acronym of Rust-Enabled Lisp Interpreter and Compiler because there was a interpreter that can be run on command line and online (by compiling it to WASM), but I abandoned it for many reasons.
+[^note1]: The name used to be the acronym of Rust-Enabled Lisp Interpreter and Compiler because there was [a interpreter](https://github.com/heanyang1/relic/wiki/Web-Interpreter) that can be run on command line and online (by compiling it to WASM), but I abandoned it for many reasons.
 
 ## Features
 
@@ -35,7 +35,7 @@ clang -Ic_runtime -o program program.c -Ltarget/debug -lrelic -Wl,-rpath,target/
 ./program
 ```
 
-See [this README.md](lib/README.md) for how to create and load a package in Relic.
+See [the wiki](https://github.com/heanyang1/relic/wiki) for supported features and how to use Relic's package system.
 
 ## Testing
 
