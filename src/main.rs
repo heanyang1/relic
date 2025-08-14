@@ -1,6 +1,9 @@
 use std::{collections::HashMap, fs::File, io::Write, path::PathBuf};
 
+use rustyline::history::FileHistory;
 use rustyline::{Editor, error::ReadlineError};
+
+mod repl_complete;
 
 use relic::{
     RT,
@@ -154,8 +157,18 @@ fn main() {
                 println!("result: {}", run_node(node));
             }
 
-            // Initialize rustyline editor with default configuration
-            let mut rl = Editor::<(), _>::new().unwrap();
+            // Gather autocomplete candidates from SYMBOLS and SPECIAL_FORMS
+            use relic::symbol::{SPECIAL_FORMS, SYMBOLS};
+            use std::sync::Arc;
+            let mut candidates: Vec<String> = SYMBOLS.keys().map(|&k| k.to_string()).collect();
+            candidates.extend(SPECIAL_FORMS.keys().map(|&k| k.to_string()));
+            candidates.sort();
+            candidates.dedup();
+            let completer = repl_complete::RelicCompleter {
+                candidates: Arc::new(candidates),
+            };
+            let mut rl = Editor::<repl_complete::RelicCompleter, FileHistory>::new().unwrap();
+            rl.set_helper(Some(completer));
             let _ = rl.load_history(".relic_history");
 
             println!("Relic REPL. Press Ctrl+D or type 'exit' to quit.");

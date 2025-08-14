@@ -53,6 +53,11 @@ cd c_runtime
 - [SICP at MIT OpenCourseWare](https://ocw.mit.edu/courses/6-001-structure-and-interpretation-of-computer-programs-spring-2005/)
 - [MaxXing's Lisp interpreter](https://github.com/pku-minic/awesome-sysy/tree/master/lisp): Lisp interpreters written in a C-like language and Lisp. I borrowed some ideas and the meta-circular interpreter from it.
 - [Matt Might's blog](https://matt.might.net/articles/) has many articles about compiling Scheme into other languages.
+- Relic has a few dependencies:
+  - [libloading](https://crates.io/crates/libloading) for loading dynamic library.
+  - [RustyLine](https://crates.io/crates/rustyline) for navigation and auto-completion in the REPL and debugger.
+  - [clap](https://crates.io/crates/clap) simplifies CLI argument parsing.
+  - [Colored](https://crates.io/crates/colored) adds color to the program.
 
 ## License
 
