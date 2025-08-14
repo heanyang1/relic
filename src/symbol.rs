@@ -1,6 +1,54 @@
 //! Symbols and special forms.
 
-use std::{fmt::Display, str::FromStr};
+use std::{collections::HashMap, fmt::Display, str::FromStr, sync::LazyLock};
+
+pub static SPECIAL_FORMS: LazyLock<HashMap<&'static str, SpecialForm>> = LazyLock::new(|| {
+    HashMap::from([
+        ("quote", SpecialForm::Quote),
+        ("cond", SpecialForm::Cond),
+        ("if", SpecialForm::If),
+        ("begin", SpecialForm::Begin),
+        ("lambda", SpecialForm::Lambda),
+        ("let", SpecialForm::Let),
+        ("define", SpecialForm::Define),
+        ("define-syntax-rule", SpecialForm::DefineSyntaxRule),
+        ("set!", SpecialForm::Set),
+        ("set-car!", SpecialForm::SetCar),
+        ("set-cdr!", SpecialForm::SetCdr),
+        ("and", SpecialForm::And),
+        ("or", SpecialForm::Or),
+        ("display", SpecialForm::Display),
+        ("newline", SpecialForm::NewLine),
+        ("graphviz", SpecialForm::Graphviz),
+        ("breakpoint", SpecialForm::BreakPoint),
+        ("import", SpecialForm::Import),
+    ])
+});
+
+pub static SYMBOLS: LazyLock<HashMap<&'static str, Symbol>> = LazyLock::new(|| {
+    HashMap::from([
+        ("nil", Symbol::Nil),
+        ("atom?", Symbol::Atom),
+        ("number?", Symbol::Number),
+        ("eq?", Symbol::Eq),
+        ("car", Symbol::Car),
+        ("cdr", Symbol::Cdr),
+        ("cons", Symbol::Cons),
+        ("t", Symbol::T),
+        ("list", Symbol::List),
+        ("+", Symbol::Add),
+        ("-", Symbol::Sub),
+        ("*", Symbol::Mul),
+        ("/", Symbol::Div),
+        ("remainder", Symbol::Remainder),
+        ("quotient", Symbol::Quotient),
+        (">", Symbol::Gt),
+        ("<", Symbol::Lt),
+        (">=", Symbol::Ge),
+        ("<=", Symbol::Le),
+        ("=", Symbol::EqNum),
+    ])
+});
 
 /// A special form is a symbol that does not fit in the applicative model.
 /// See chapter 1.1.3 of SICP for details.
@@ -228,56 +276,19 @@ impl FromStr for SpecialForm {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "quote" => Ok(SpecialForm::Quote),
-            "cond" => Ok(SpecialForm::Cond),
-            "if" => Ok(SpecialForm::If),
-            "begin" => Ok(SpecialForm::Begin),
-            "lambda" => Ok(SpecialForm::Lambda),
-            "let" => Ok(SpecialForm::Let),
-            "define" => Ok(SpecialForm::Define),
-            "define-syntax-rule" => Ok(SpecialForm::DefineSyntaxRule),
-            "set!" => Ok(SpecialForm::Set),
-            "set-car!" => Ok(SpecialForm::SetCar),
-            "set-cdr!" => Ok(SpecialForm::SetCdr),
-            "and" => Ok(SpecialForm::And),
-            "or" => Ok(SpecialForm::Or),
-            "display" => Ok(SpecialForm::Display),
-            "newline" => Ok(SpecialForm::NewLine),
-            "graphviz" => Ok(SpecialForm::Graphviz),
-            "breakpoint" => Ok(SpecialForm::BreakPoint),
-            "import" => Ok(SpecialForm::Import),
-            _ => Err("Not a special form".to_string()),
-        }
+        SPECIAL_FORMS
+            .get(value)
+            .cloned()
+            .ok_or_else(|| "Not a special form".to_string())
     }
 }
 
 impl<T: Into<String>> From<T> for Symbol {
     fn from(value: T) -> Self {
         let value = value.into();
-        match value.as_str() {
-            "atom?" => Symbol::Atom,
-            "number?" => Symbol::Number,
-            "eq?" => Symbol::Eq,
-            "car" => Symbol::Car,
-            "cdr" => Symbol::Cdr,
-            "cons" => Symbol::Cons,
-            "t" => Symbol::T,
-            "list" => Symbol::List,
-            "nil" => Symbol::Nil,
-            "+" => Symbol::Add,
-            "-" => Symbol::Sub,
-            "*" => Symbol::Mul,
-            "/" => Symbol::Div,
-            "remainder" => Symbol::Remainder,
-            "quotient" => Symbol::Quotient,
-            ">" => Symbol::Gt,
-            "<" => Symbol::Lt,
-            ">=" => Symbol::Ge,
-            "<=" => Symbol::Le,
-            "=" => Symbol::EqNum,
-            _ => Symbol::User(value),
-        }
+        SYMBOLS.get(value.as_str())
+            .cloned()
+            .unwrap_or_else(|| Symbol::User(value))
     }
 }
 
