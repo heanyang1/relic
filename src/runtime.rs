@@ -216,24 +216,46 @@ impl LoadToRuntime for &str {
     }
 }
 
+/// Pop the stack for `n` times if `stmt` returns error.
+/// It is used to remove previous objects from the stack, not the object being
+/// loaded to the stack (which will be taken care of by `load_to`).
+macro_rules! pop_on_err {
+    ($stmt:expr, $runtime:expr, $n: expr) => {
+        $stmt.map_err(|e| {
+            for _ in 0..$n {
+                $runtime.pop();
+            }
+            e
+        })?
+    };
+}
+
 impl LoadToRuntime for &mut Lexer {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
         match self.next() {
             Some(TokenType::LParem) => parse_list(self, runtime),
             Some(TokenType::Quote) => {
                 Symbol::Nil.load_to(runtime)?;
-                self.load_to(runtime)?;
+                pop_on_err!(self.load_to(runtime), runtime, 1);
                 runtime.new_pair();
-                Symbol::User("quote".to_string()).load_to(runtime)?;
+                pop_on_err!(
+                    Symbol::User("quote".to_string()).load_to(runtime),
+                    runtime,
+                    1
+                );
                 runtime.new_pair();
                 Ok(())
             }
             Some(TokenType::Number(i)) => i.load_to(runtime),
             Some(TokenType::String(str)) => {
                 Symbol::Nil.load_to(runtime)?;
-                Symbol::from(str).load_to(runtime)?;
+                pop_on_err!(Symbol::from(str).load_to(runtime), runtime, 1);
                 runtime.new_pair();
-                Symbol::User("quote".to_string()).load_to(runtime)?;
+                pop_on_err!(
+                    Symbol::User("quote".to_string()).load_to(runtime),
+                    runtime,
+                    1
+                );
                 runtime.new_pair();
                 Ok(())
             }
@@ -259,12 +281,15 @@ impl LoadToRuntime for &mut Lexer {
 /// Returns [ParseError] and restores the stack to the state before the
 /// function call if an error occurs.
 fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), ParseError> {
+    macro_rules! consume {
+        ($tokens:expr, $ty:expr) => {
+            $tokens.consume($ty).map_err(ParseError::SyntaxError)
+        };
+    }
     match tokens.peek_next_token().1 {
         Some(TokenType::RParem) => {
             // case 1
-            tokens
-                .consume(TokenType::RParem)
-                .map_err(ParseError::SyntaxError)?;
+            consume!(tokens, TokenType::RParem)?;
             Symbol::Nil.load_to(runtime)
         }
         _ => {
@@ -273,19 +298,12 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), ParseErro
             // cdr
             if let Some(TokenType::Dot) = tokens.peek_next_token().1 {
                 // case 3
-                tokens.consume(TokenType::Dot).map_err(|e| {
-                    runtime.pop(); // car
-                    ParseError::SyntaxError(e)
-                })?;
-                tokens.load_to(runtime)?;
-                tokens.consume(TokenType::RParem).map_err(|e| {
-                    runtime.pop(); // cdr
-                    runtime.pop(); // car
-                    ParseError::SyntaxError(e)
-                })?;
+                pop_on_err!(consume!(tokens, TokenType::Dot), runtime, 1); // pop car
+                pop_on_err!(tokens.load_to(runtime), runtime, 1);
+                pop_on_err!(consume!(tokens, TokenType::RParem), runtime, 2); // pop both
             } else {
                 // case 2
-                parse_list(tokens, runtime)?
+                pop_on_err!(parse_list(tokens, runtime), runtime, 1); // pop car
             };
 
             runtime.swap();
@@ -312,14 +330,6 @@ impl TryFrom<RuntimeNode> for Number {
             Err(RuntimeError::new("Not a number"))
         }
     }
-}
-
-macro_rules! load_to {
-    ($runtime:expr, $expr:expr) => {
-        $expr
-            .load_to($runtime)
-            .map_err(|e| RuntimeError::new(e.to_string()))
-    };
 }
 
 macro_rules! rel_op {
@@ -390,6 +400,13 @@ impl StackMachine<usize> for Runtime {
     }
 
     fn apply(&mut self, nargs: usize) -> Result<(), RuntimeError> {
+        macro_rules! load_to {
+            ($runtime:expr, $expr:expr) => {
+                $expr
+                    .load_to($runtime)
+                    .map_err(|e| RuntimeError::new(e.to_string()))
+            };
+        }
         let index = self.pop();
         let operator = self.get_symbol(index)?;
         match operator {

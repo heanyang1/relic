@@ -1,6 +1,8 @@
 ;; A Lisp interpreter written in Lisp.
 ;; Most parts of the interpreter are from SICP lecture 7a,
 ;; others are from [MaxXing's lisp.lisp](https://github.com/pku-minic/awesome-sysy/blob/master/lisp/lisp.lisp)
+;; Relic does not have EOF so far. type `nil` to exit the interpreter. It won't
+;; exit when typing `'()` or anything that is not `nil` but evals to `nil`.
 
 (define (caar x) (car (car x)))
 (define (cadr x) (car (cdr x)))
@@ -72,18 +74,17 @@
         ((eq? sym (caar alist)) (car alist))
         ('t (assq sym (cdr alist)))))
 
-(define cur_env '(((t t))))
+(define cur_env '(((t . t))))
 
-(eval '(define fib
-        (lambda (x)
-          (cond ((= x 0) 0)
-                ((= x 1) 1)
-                ('t (+ (fib (- x 2)) (fib (- x 1)))))))
-      cur_env)
-(eval '(define map
-        (lambda (f l)
-          (cond ((eq? l '()) '())
-                ('t (cons (f (car l))
-                          (map f (cdr l)))))))
-      cur_env)
-(eval '(map fib '(1 2 3 4 5 6 7 8 9 10)) cur_env)
+(define (loop)
+  (display "> ")
+  (let ((value (read)))
+    (if (eq? value '())
+        '()
+        (begin
+          (display "= ")
+          (display (eval value cur_env))
+          (newline)
+          (loop)))))
+
+(loop)

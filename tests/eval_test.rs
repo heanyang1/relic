@@ -667,20 +667,6 @@ fn run_c_test() {
     std::fs::remove_file("lib/test.relic").unwrap();
 }
 
-#[test]
-#[serial]
-fn run_examples() {
-    rt_start();
-    let node = file_to_node(
-        Some(PathBuf::from_str("examples/interpreter.lisp").unwrap()),
-        &mut HashMap::new(),
-    )
-    .unwrap();
-    assert_eq!(run_node(node), "(1 1 2 3 5 8 13 21 34 55)");
-    let mut runtime = RT.write().unwrap();
-    runtime.clear();
-}
-
 pub static COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[test]

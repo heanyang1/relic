@@ -203,6 +203,7 @@ pub extern "C" fn rt_apply(nargs: usize) -> usize {
     }
 }
 
+/// The `(read)` special form.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_read() {
     let mut rt = RT.write().unwrap();
@@ -219,8 +220,8 @@ pub extern "C" fn rt_read() {
             }
             Err(e) => {
                 log_error(format!("Error in rt_read: {e}"));
-                // let nil = rt.new_node_with_gc(RuntimeNode::Symbol(Symbol::Nil));
-                // rt.push(nil);
+                let nil = rt.new_node_with_gc(RuntimeNode::Symbol(Symbol::Nil));
+                rt.push(nil);
                 break;
             }
         }
