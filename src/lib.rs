@@ -20,6 +20,7 @@ use std::{
 
 use crate::{
     env::Env,
+    error::ParseError,
     lexer::Number,
     logger::{log_error, log_warning, unwrap_result},
     node::Node,
@@ -198,6 +199,30 @@ pub extern "C" fn rt_apply(nargs: usize) -> usize {
         Err(e) => {
             log_error(format!("Error in rt_apply: {e}"));
             0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_read() {
+    let mut rt = RT.write().unwrap();
+    rt.api_called("rt_read()".to_string());
+    let mut input = String::new();
+    loop {
+        let mut current = String::new();
+        std::io::stdin().read_line(&mut current).unwrap();
+        input.push_str(&current);
+        match input.load_to(&mut rt) {
+            Ok(()) => break,
+            Err(ParseError::EOF) => {
+                continue;
+            }
+            Err(e) => {
+                log_error(format!("Error in rt_read: {e}"));
+                // let nil = rt.new_node_with_gc(RuntimeNode::Symbol(Symbol::Nil));
+                // rt.push(nil);
+                break;
+            }
         }
     }
 }

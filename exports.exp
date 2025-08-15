@@ -31,3 +31,4 @@ _rt_is_symbol
 _rt_import
 _rt_breakpoint
 _rt_evaluated
+_rt_read

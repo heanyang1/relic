@@ -33,6 +33,7 @@ extern void rt_swap(void);
 
 // IO
 extern char *rt_display_node_idx(size_t index);
+extern void rt_read();
 
 // Environment
 extern void rt_move_to_env(size_t env);

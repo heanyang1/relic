@@ -421,6 +421,10 @@ fflush(NULL);"#,
                         return_nil!(codegen, ctx);
                         Ok(())
                     }
+                    SpecialForm::Read => {
+                        codegen.append_code("rt_read();");
+                        Ok(())
+                    },
                     SpecialForm::Graphviz => todo!(),
                     _ => unreachable!(),
                 },

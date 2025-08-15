@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     env::Env,
-    error::RuntimeError,
+    error::{ParseError, RuntimeError},
     lexer::{Lexer, Number, TokenType},
     logger::{log_debug, log_error},
     node::Node,
@@ -184,64 +184,87 @@ impl Display for Runtime {
 /// The trait that describes how to move an object into the runtime.
 pub trait LoadToRuntime {
     /// Load the object into the top of the stack.
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError>;
+    ///
+    /// # Errors
+    ///
+    /// Returns [ParseError] and restores the stack to the state before the
+    /// function call if an error occurs.
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError>;
 }
 
 impl LoadToRuntime for Number {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
         RuntimeNode::Number(self).load_to(runtime)
     }
 }
 
 impl LoadToRuntime for Symbol {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
         RuntimeNode::Symbol(self).load_to(runtime)
     }
 }
 
 impl LoadToRuntime for Closure {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
         RuntimeNode::Closure(self).load_to(runtime)
     }
 }
 
 impl LoadToRuntime for &str {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
         Lexer::new(self).load_to(runtime)
     }
 }
 
 impl LoadToRuntime for &mut Lexer {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
         match self.next() {
             Some(TokenType::LParem) => parse_list(self, runtime),
-            Some(TokenType::Quote) | Some(TokenType::String(_)) => {
-                panic!("You don't need to quote in the runtime.")
+            Some(TokenType::Quote) => {
+                Symbol::Nil.load_to(runtime)?;
+                self.load_to(runtime)?;
+                runtime.new_pair();
+                Symbol::User("quote".to_string()).load_to(runtime)?;
+                runtime.new_pair();
+                Ok(())
             }
             Some(TokenType::Number(i)) => i.load_to(runtime),
+            Some(TokenType::String(str)) => {
+                Symbol::Nil.load_to(runtime)?;
+                Symbol::from(str).load_to(runtime)?;
+                runtime.new_pair();
+                Symbol::User("quote".to_string()).load_to(runtime)?;
+                runtime.new_pair();
+                Ok(())
+            }
             Some(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
-            Some(TokenType::RParem) => Err(RuntimeError::new(format!(
+            Some(TokenType::RParem) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Unexpected ')'",
                 self.get_cur_pos()
             ))),
-            Some(TokenType::Dot) => Err(RuntimeError::new(format!(
+            Some(TokenType::Dot) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Unexpected '.'",
                 self.get_cur_pos()
             ))),
-            None => Err(RuntimeError::new("Unexpected EOF while parsing")),
+            None => Err(ParseError::EOF),
         }
     }
 }
 
 /// The same as [Node::parse_list], except that it deals with the runtime and
 /// loads everything into the stack.
-fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), RuntimeError> {
+///
+/// # Errors
+///
+/// Returns [ParseError] and restores the stack to the state before the
+/// function call if an error occurs.
+fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), ParseError> {
     match tokens.peek_next_token().1 {
         Some(TokenType::RParem) => {
             // case 1
             tokens
                 .consume(TokenType::RParem)
-                .map_err(RuntimeError::new)?;
+                .map_err(ParseError::SyntaxError)?;
             Symbol::Nil.load_to(runtime)
         }
         _ => {
@@ -250,11 +273,16 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), RuntimeEr
             // cdr
             if let Some(TokenType::Dot) = tokens.peek_next_token().1 {
                 // case 3
-                tokens.consume(TokenType::Dot).unwrap();
+                tokens.consume(TokenType::Dot).map_err(|e| {
+                    runtime.pop(); // car
+                    ParseError::SyntaxError(e)
+                })?;
                 tokens.load_to(runtime)?;
-                tokens
-                    .consume(TokenType::RParem)
-                    .map_err(RuntimeError::new)?;
+                tokens.consume(TokenType::RParem).map_err(|e| {
+                    runtime.pop(); // cdr
+                    runtime.pop(); // car
+                    ParseError::SyntaxError(e)
+                })?;
             } else {
                 // case 2
                 parse_list(tokens, runtime)?
@@ -268,7 +296,7 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), RuntimeEr
 }
 
 impl LoadToRuntime for RuntimeNode {
-    fn load_to(self, runtime: &mut Runtime) -> Result<(), RuntimeError> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
         let idx = runtime.new_node_with_gc(self);
         runtime.push(idx);
         Ok(())
@@ -286,17 +314,25 @@ impl TryFrom<RuntimeNode> for Number {
     }
 }
 
+macro_rules! load_to {
+    ($runtime:expr, $expr:expr) => {
+        $expr
+            .load_to($runtime)
+            .map_err(|e| RuntimeError::new(e.to_string()))
+    };
+}
+
 macro_rules! rel_op {
     ($runtime:expr, $nargs:expr, $op:tt) => {{
         let operands = $runtime.node_vec_from_stack($nargs);
-        eval_rel(operands, |a, b| a $op b)?.load_to($runtime)
+        load_to!($runtime, eval_rel(operands, |a, b| a $op b)?)
     }};
 }
 
 macro_rules! arith_op {
     ($runtime:expr, $nargs:expr, $op:tt) => {{
         let operands = $runtime.node_vec_from_stack($nargs);
-        eval_arith(operands, |a, b| a $op b)?.load_to($runtime)
+        load_to!($runtime, eval_arith(operands, |a, b| a $op b)?)
     }};
 }
 
@@ -371,7 +407,7 @@ impl StackMachine<usize> for Runtime {
                 if let (Ok(Number::Int(lhs)), Ok(Number::Int(rhs))) =
                     (self.get_number(lhs), self.get_number(rhs))
                 {
-                    Number::Int(lhs % rhs).load_to(self)
+                    load_to!(self, Number::Int(lhs % rhs))
                 } else {
                     Err(RuntimeError::new(format!(
                         "Expected two integers, found {} and {}",
@@ -387,7 +423,7 @@ impl StackMachine<usize> for Runtime {
                 if let (Ok(Number::Int(lhs)), Ok(Number::Int(rhs))) =
                     (self.get_number(lhs), self.get_number(rhs))
                 {
-                    Number::Int(lhs / rhs).load_to(self)
+                    load_to!(self, Number::Int(lhs / rhs))
                 } else {
                     Err(RuntimeError::new(format!(
                         "Expected two integers, found {} and {}",
@@ -400,12 +436,14 @@ impl StackMachine<usize> for Runtime {
                 assert_eq!(nargs, 2);
                 let lhs = self.pop();
                 let rhs = self.pop();
-                (if self.node_eq(lhs, rhs) {
-                    Symbol::T
-                } else {
-                    Symbol::Nil
-                })
-                .load_to(self)
+                load_to!(
+                    self,
+                    if self.node_eq(lhs, rhs) {
+                        Symbol::T
+                    } else {
+                        Symbol::Nil
+                    }
+                )
             }
             Symbol::EqNum => rel_op!(self, nargs, ==),
             Symbol::Gt => rel_op!(self, nargs, >),
@@ -415,12 +453,14 @@ impl StackMachine<usize> for Runtime {
             Symbol::Atom => {
                 assert_eq!(nargs, 1);
                 let val = self.pop_as_node();
-                (if let RuntimeNode::Pair(_, _) = val {
-                    Symbol::Nil
-                } else {
-                    Symbol::T
-                })
-                .load_to(self)
+                load_to!(
+                    self,
+                    if let RuntimeNode::Pair(_, _) = val {
+                        Symbol::Nil
+                    } else {
+                        Symbol::T
+                    }
+                )
             }
             Symbol::Car => {
                 assert_eq!(nargs, 1);
@@ -456,12 +496,14 @@ impl StackMachine<usize> for Runtime {
             }
             Symbol::Number => {
                 assert_eq!(nargs, 1);
-                (if let RuntimeNode::Number(_) = self.pop_as_node() {
-                    Symbol::T
-                } else {
-                    Symbol::Nil
-                })
-                .load_to(self)
+                load_to!(
+                    self,
+                    if let RuntimeNode::Number(_) = self.pop_as_node() {
+                        Symbol::T
+                    } else {
+                        Symbol::Nil
+                    }
+                )
             }
             Symbol::User(_) => panic!("You should call the closure's function in C"),
         }

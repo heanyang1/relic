@@ -22,6 +22,7 @@ pub static SPECIAL_FORMS: LazyLock<HashMap<&'static str, SpecialForm>> = LazyLoc
         ("graphviz", SpecialForm::Graphviz),
         ("breakpoint", SpecialForm::BreakPoint),
         ("import", SpecialForm::Import),
+        ("read", SpecialForm::Read),
     ])
 });
 
@@ -170,6 +171,11 @@ pub enum SpecialForm {
     /// `(import p)` loads the symbol defined at the top level of the
     /// package `p` into current environment and returns `nil`.
     Import,
+    /// Special form `read`.
+    ///
+    /// `(read p)` reads a object from stdin and return the object. It returns
+    /// `nil` if the input is invalid.
+    Read,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -286,7 +292,8 @@ impl FromStr for SpecialForm {
 impl<T: Into<String>> From<T> for Symbol {
     fn from(value: T) -> Self {
         let value = value.into();
-        SYMBOLS.get(value.as_str())
+        SYMBOLS
+            .get(value.as_str())
             .cloned()
             .unwrap_or_else(|| Symbol::User(value))
     }
@@ -313,6 +320,7 @@ impl Display for SpecialForm {
             SpecialForm::Graphviz => write!(f, "graphviz"),
             SpecialForm::BreakPoint => write!(f, "breakpoint"),
             SpecialForm::Import => write!(f, "import"),
+            SpecialForm::Read => write!(f, "read"),
         }
     }
 }
