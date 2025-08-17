@@ -9,12 +9,17 @@
 (define (get-frame-w frame) (car (cdr (cdr frame))))
 (define (get-frame-h frame) (car (cdr (cdr (cdr frame)))))
 
+(define time 0)
+
+(define pi 3.14)
+(define (get-color phase) (abs (floor (* 255 (sin (+ time phase))))))
+
 (define (primitive-painter frame)
     (sdl-fill-rect-xywh
      screen-surface 0 0 0
      (get-frame-x frame) (get-frame-y frame) (get-frame-w frame) (get-frame-h frame))
   (sdl-fill-rect-xywh
-   screen-surface 100 100 200
+   screen-surface (get-color pi) (get-color (- 0 (/ pi 3))) (get-color (/ pi 3))
    (+ 1 (get-frame-x frame)) (+ 1 (get-frame-y frame)) (- (get-frame-w frame) 2) (- (get-frame-h frame) 2)))
 
 (define (above painter1 painter2)
@@ -24,7 +29,6 @@
             (x (get-frame-x frame))
             (y1 (get-frame-y frame))
             (y2 (+ (quotient (get-frame-h frame) 2) (get-frame-y frame))))
-        (breakpoint)
         (painter1 (list x y1 w h))
         (painter2 (list x y2 w h)))))
 
@@ -35,7 +39,6 @@
             (y (get-frame-y frame))
             (x1 (get-frame-x frame))
             (x2 (+ (quotient (get-frame-w frame) 2) (get-frame-x frame))))
-        (breakpoint)
         (painter1 (list x1 y w h))
         (painter2 (list x2 y w h)))))
 
@@ -81,6 +84,7 @@
          ;; Small delay to prevent high CPU usage
          (sdl-delay 16)
          
+         (set! time (+ 0.1 time))
          (loop)))))
 
 (loop)

@@ -482,8 +482,6 @@ fn test_sqrt() {
     (/ (+ x y) 2))
 (define (good-enough? guess x)
     (< (abs (- (* guess guess) x)) 0.001))
-(define (abs x)
-    (if (> x 0) x (- 0 x)))
 (define (sqrt x)
     (sqrt-iter 1.0 x))
 (define z (sqrt 2))

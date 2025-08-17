@@ -43,6 +43,11 @@ pub static SYMBOLS: LazyLock<HashMap<&'static str, Symbol>> = LazyLock::new(|| {
         ("/", Symbol::Div),
         ("remainder", Symbol::Remainder),
         ("quotient", Symbol::Quotient),
+        ("floor", Symbol::Floor),
+        ("ceiling", Symbol::Ceiling),
+        ("sin", Symbol::Sin),
+        ("cos", Symbol::Cos),
+        ("abs", Symbol::Abs),
         (">", Symbol::Gt),
         ("<", Symbol::Lt),
         (">=", Symbol::Ge),
@@ -249,6 +254,28 @@ pub enum Symbol {
     /// `(remainder x1 x2)` evaluates `x1` and `x2` and return the remainder of the
     /// results. `x1` and `x2` must be integers.
     Remainder,
+    /// Built-in symbol `floor`.
+    /// 
+    /// `(floor x)` evaluates `x` and returns the largest integer that is less
+    /// than or equal to `x`.
+    Floor,
+    /// Built-in symbol `ceiling`.
+    /// 
+    /// `(ceiling x)` evaluates `x` and returns the smallest integer that is
+    /// greater than or equal to `x`.
+    Ceiling,
+    /// Built-in symbol `sin`.
+    ///
+    /// `(sin x)` evaluates `x` and returns the sine of `x`.
+    Sin,
+    /// Built-in symbol `cos`.
+    ///
+    /// `(cos x)` evaluates `x` and returns the cosine of `x`.
+    Cos,
+    /// Built-in symbol `abs`.
+    ///
+    /// `(abs x)` evaluates `x` and returns the absolute value of `x`.
+    Abs,
     /// Built-in symbol `>`.
     ///
     /// `(> x1 x2)` evaluates `x1` and `x2` and return `t` if `x1` is greater
@@ -344,6 +371,11 @@ impl Display for Symbol {
             Symbol::Div => write!(f, "/"),
             Symbol::Remainder => write!(f, "remainder"),
             Symbol::Quotient => write!(f, "quotient"),
+            Symbol::Floor => write!(f, "floor"),
+            Symbol::Ceiling => write!(f, "ceiling"),
+            Symbol::Sin => write!(f, "sin"),
+            Symbol::Cos => write!(f, "cos"),
+            Symbol::Abs => write!(f, "abs"),
             Symbol::Gt => write!(f, ">"),
             Symbol::Lt => write!(f, "<"),
             Symbol::Ge => write!(f, ">="),

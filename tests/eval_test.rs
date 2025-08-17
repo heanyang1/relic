@@ -92,6 +92,14 @@ fn test_simple_arithmetic() {
     assert_eval_node!("(- 3 2 1)", RuntimeNode::Number(Number::Int(0)));
     assert_eval_node!("(remainder 10 3)", RuntimeNode::Number(Number::Int(1)));
     assert_eval_node!("(quotient 20 3)", RuntimeNode::Number(Number::Int(6)));
+    assert_eval_node!("(floor 2.5)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node!("(ceiling 2.5)", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node!("(sin 0)", RuntimeNode::Number(Number::Float(0.0)));
+    assert_eval_node!("(cos 0)", RuntimeNode::Number(Number::Float(1.0)));
+    assert_eval_node!("(abs 2)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node!("(abs (- 0 2))", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node!("(abs 2.0)", RuntimeNode::Number(Number::Float(2.0)));
+    assert_eval_node!("(abs (- 0 2.0))", RuntimeNode::Number(Number::Float(2.0)));
     assert_eval_node!("(* 2 3)", RuntimeNode::Number(Number::Int(6)));
     assert_eval_node!("(/ 6 3)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(/ 5 2)", RuntimeNode::Number(Number::Float(2.5)));

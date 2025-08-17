@@ -346,6 +346,19 @@ macro_rules! arith_op {
     }};
 }
 
+macro_rules! unary_op {
+    ($runtime:expr, $nargs:expr, $op:expr) => {{
+        assert_eq!($nargs, 1);
+        let val = $runtime.pop();
+        match $runtime.get_number(val) {
+            Ok(num) => $op(num)
+                .load_to($runtime)
+                .map_err(|e| RuntimeError::new(e.to_string())),
+            Err(e) => Err(e),
+        }
+    }};
+}
+
 /// Unlike SICP's register machine model, our runtime uses a stack machine
 /// to evaluate expression.
 ///
@@ -448,6 +461,34 @@ impl StackMachine<usize> for Runtime {
                         self.display_node_idx(rhs)
                     )))
                 }
+            }
+            Symbol::Floor => {
+                unary_op!(self, nargs, |num| {
+                    Number::Int(f64::from(num).floor() as i64)
+                })
+            }
+            Symbol::Ceiling => {
+                unary_op!(self, nargs, |num| {
+                    Number::Int(f64::from(num).ceil() as i64)
+                })
+            }
+            Symbol::Sin => {
+                unary_op!(self, nargs, |num| {
+                    Number::Float(f64::from(num).sin())
+                })
+            }
+            Symbol::Abs => {
+                unary_op!(self, nargs, |num| {
+                    match num {
+                        Number::Int(num) => Number::Int(num.abs()), 
+                        Number::Float(num) => Number::Float(num.abs()),
+                    }
+                })
+            }
+            Symbol::Cos => {
+                unary_op!(self, nargs, |num| {
+                    Number::Float(f64::from(num).cos())
+                })
             }
             Symbol::Eq => {
                 assert_eq!(nargs, 2);
