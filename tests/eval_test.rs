@@ -461,8 +461,10 @@ fn test_fact() {
 
 #[test]
 #[serial]
-fn test_list() {
+fn test_list_package() {
     rt_start();
+    assert_eval_node!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
+    // import twice should not break anything
     assert_eval_node!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_text!(
         "(map (lambda (x) (+ x 1)) '(0 1 2 3 4 5 6 7 8 9))",
@@ -475,6 +477,10 @@ fn test_list() {
     assert_eval_text!(
         "(map + '(1 2 3) '(3 2 1) '(3 3 3))",
         "(7 7 7)"
+    );
+    assert_eval_text!(
+        "(append '((1 2) 3) '(4 5) '(6))",
+        "((1 2) 3 4 5 6)"
     );
     let mut runtime = RT.write().unwrap();
     runtime.clear();
@@ -740,6 +746,28 @@ fn debug_test() {
         let mut runtime = RT.write().unwrap();
         runtime.clear();
     }
+}
+
+#[test]
+fn test_run_monoidal() {
+    let cmd = Command::new(env!("CARGO_BIN_EXE_relic"))
+        .args(["run", "-i", "examples/monoidal.lisp"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let out = cmd.wait_with_output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        r#"(nil 2)
+(t -2)
+(5)
+(-5)
+(6)
+(2 -13)
+(-1 7)result: nil
+"#
+    );
 }
 
 #[test]

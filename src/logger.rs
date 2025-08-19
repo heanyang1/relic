@@ -33,7 +33,7 @@ pub struct Logger {
 impl Logger {
     fn new() -> Self {
         let level = std::env::var("LOG_LEVEL")
-            .unwrap_or_else(|_| "ERROR".into())
+            .unwrap_or_else(|_| "WARNING".into())
             .parse()
             .unwrap();
 

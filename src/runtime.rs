@@ -327,7 +327,7 @@ impl TryFrom<RuntimeNode> for Number {
         if let RuntimeNode::Number(number) = value {
             Ok(number.clone())
         } else {
-            Err(RuntimeError::new("Not a number"))
+            Err(RuntimeError::new(format!("{value:?} is not a number")))
         }
     }
 }
@@ -420,7 +420,7 @@ impl StackMachine<usize> for Runtime {
                     .map_err(|e| RuntimeError::new(e.to_string()))
             };
         }
-        
+
         let index = self.pop();
         let operator = self.get_symbol(index)?;
         let index = self.pop();
@@ -963,6 +963,10 @@ impl Runtime {
     /// `(top) nargs elem1 elem2 ...`
     pub fn list_to_stack(&mut self) -> Result<(), RuntimeError> {
         let mut list = self.pop();
+        if let Ok(Symbol::Nil) = self.get_symbol(list) {
+            Number::Int(0).load_to(self).unwrap();
+            return Ok(());
+        }
         let mut elems = vec![];
         loop {
             let (car, cdr) = self.get_pair(list)?;
@@ -972,9 +976,7 @@ impl Runtime {
                 for elem in elems.iter().rev() {
                     self.push(*elem);
                 }
-                Number::Int(elems.len() as i64)
-                    .load_to(self)
-                    .map_err(|e| RuntimeError::new(e.to_string()))?;
+                Number::Int(elems.len() as i64).load_to(self).unwrap();
                 return Ok(());
             }
         }
