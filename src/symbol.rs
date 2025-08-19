@@ -19,10 +19,10 @@ pub static SPECIAL_FORMS: LazyLock<HashMap<&'static str, SpecialForm>> = LazyLoc
         ("or", SpecialForm::Or),
         ("display", SpecialForm::Display),
         ("newline", SpecialForm::NewLine),
-        ("graphviz", SpecialForm::Graphviz),
         ("breakpoint", SpecialForm::BreakPoint),
         ("import", SpecialForm::Import),
         ("read", SpecialForm::Read),
+        ("apply", SpecialForm::Apply),
     ])
 });
 
@@ -162,10 +162,6 @@ pub enum SpecialForm {
     ///
     /// `(newline)` prints a newline.
     NewLine,
-    /// Special form `graphviz`.
-    ///
-    /// `(graphviz)` prints current environment as a graphviz graph.
-    Graphviz,
     /// Special form `breakpoint`.
     ///
     /// `(breakpoint)` creates a breakpoint that stops the debugger. It is a
@@ -181,6 +177,11 @@ pub enum SpecialForm {
     /// `(read p)` reads a object from stdin and return the object. It returns
     /// `nil` if the input is invalid.
     Read,
+    /// Special form `apply`.
+    ///
+    /// `(apply f args)` evaluates `f` and `args` and apply `f` to `args`.
+    /// The value of `args` must be a list.
+    Apply,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -255,12 +256,12 @@ pub enum Symbol {
     /// results. `x1` and `x2` must be integers.
     Remainder,
     /// Built-in symbol `floor`.
-    /// 
+    ///
     /// `(floor x)` evaluates `x` and returns the largest integer that is less
     /// than or equal to `x`.
     Floor,
     /// Built-in symbol `ceiling`.
-    /// 
+    ///
     /// `(ceiling x)` evaluates `x` and returns the smallest integer that is
     /// greater than or equal to `x`.
     Ceiling,
@@ -344,10 +345,10 @@ impl Display for SpecialForm {
             SpecialForm::Or => write!(f, "or"),
             SpecialForm::Display => write!(f, "display"),
             SpecialForm::NewLine => write!(f, "newline"),
-            SpecialForm::Graphviz => write!(f, "graphviz"),
             SpecialForm::BreakPoint => write!(f, "breakpoint"),
             SpecialForm::Import => write!(f, "import"),
             SpecialForm::Read => write!(f, "read"),
+            SpecialForm::Apply => write!(f, "apply"),
         }
     }
 }

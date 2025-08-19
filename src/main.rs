@@ -10,15 +10,14 @@ use relic::{
     compile::{CodeGen, compile},
     env::Env,
     error::ParseError,
-    file_to_node,
     lexer::Lexer,
     logger::{LogLevel, log_debug, log_error, set_log_level, unwrap_result},
     node::Node,
+    package::file_to_node,
     parser::Parse,
     preprocess::PreProcess,
     rt_start, run_node,
     runtime::{DbgState, Runtime, StackMachine},
-    symbol::Symbol,
 };
 
 use clap::{Parser, ValueEnum};
@@ -139,13 +138,15 @@ fn main() {
     let cli = Cli::parse();
 
     let mut macros = HashMap::new();
-    let input_node = file_to_node(cli.input_path, &mut macros);
+    let input_node = cli
+        .input_path
+        .map(|path| unwrap_result(file_to_node(path, &mut macros)));
 
     match cli.mode {
         Mode::Run => {
             rt_start();
             if let Some(node) = input_node {
-                println!("result: {}", run_node(node));
+                println!("result: {}", unwrap_result(run_node(node)));
             } else {
                 eprintln!("No files to run");
             }
@@ -154,7 +155,7 @@ fn main() {
             rt_start();
 
             if let Some(node) = input_node {
-                println!("result: {}", run_node(node));
+                println!("result: {}", unwrap_result(run_node(node)));
             }
 
             // Gather autocomplete candidates from SYMBOLS and SPECIAL_FORMS
@@ -204,12 +205,15 @@ fn main() {
                         match Node::parse(&mut tokens) {
                             Ok(mut node) => {
                                 // Successful parse, execute and clear buffer
-                                node = unwrap_result(
-                                    node.preprocess(&mut macros),
-                                    Node::Symbol(Symbol::Nil),
-                                );
-                                println!("= {}", run_node(node));
-                                rl.add_history_entry(input_buffer.trim()).unwrap();
+                                match node.preprocess(&mut macros).and_then(|node| run_node(node)) {
+                                    Ok(result) => {
+                                        println!("= {}", result);
+                                        rl.add_history_entry(input_buffer.trim()).unwrap();
+                                    }
+                                    Err(msg) => {
+                                        log_error(msg);
+                                    }
+                                }
                                 input_buffer.clear();
                             }
                             Err(ParseError::EOF) => {
@@ -250,7 +254,7 @@ fn main() {
             };
             match input_node {
                 Some(node) => {
-                    unwrap_result(compile(&node, &mut codegen, cli.debug_info), ());
+                    unwrap_result(compile(&node, &mut codegen, cli.debug_info));
                     match cli.output_path {
                         Some(output_path) => {
                             let mut output_file = File::create(output_path).unwrap();
@@ -277,7 +281,7 @@ fn main() {
                     runtime.set_callback(dbg_loop);
                     runtime.begin_debug();
                 }
-                unwrap_result(node.jit_compile(true), ());
+                unwrap_result(node.jit_compile(true));
                 let mut runtime = RT.write().unwrap();
                 let index = runtime.pop();
                 println!("result: {}", runtime.display_node_idx(index))

@@ -4,10 +4,7 @@
 ;; Relic does not have EOF so far. type `nil` to exit the interpreter. It won't
 ;; exit when typing `'()` or anything that is not `nil` but evals to `nil`.
 
-(define (caar x) (car (car x)))
-(define (cadr x) (car (cdr x)))
-(define (cadar x) (car (cdr (car x))))
-(define (caddr x) (car (cdr (cdr x))))
+(import list)
 
 (define (eval exp env)
   (cond ((number? exp) exp)
@@ -34,10 +31,10 @@
         ((eq? (car exp) 'define)
          (set-car! env (cons (cons (cadr exp) (eval (caddr exp) env)) (car env))))
         ('t
-         (apply (eval (car exp) env)
+         (my/apply (eval (car exp) env)
                 (evlist (cdr exp) env)))))
 
-(define (apply proc args)
+(define (my/apply proc args)
   (eval (cadar proc)
         (bind (caar proc) args (cadr proc))))
 

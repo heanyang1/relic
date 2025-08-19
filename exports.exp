@@ -32,3 +32,4 @@ _rt_import
 _rt_breakpoint
 _rt_evaluated
 _rt_read
+_rt_list_to_stack

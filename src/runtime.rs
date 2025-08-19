@@ -387,9 +387,9 @@ pub trait StackMachine<Item> {
     fn top(&self) -> Item;
     /// Swap the top two elements in the stack. Panics when stack underflow.
     fn swap(&mut self);
-    /// Pop one item as operator and `usize` items as operands, evaluate the
-    /// expression, then push the result into the stack.
-    fn apply(&mut self, nargs: usize) -> Result<(), RuntimeError>;
+    /// Pop an item as operator, an item as number of operands and items as
+    /// operands, evaluate the expression, then push the result into the stack.
+    fn apply(&mut self) -> Result<(), RuntimeError>;
 }
 
 impl StackMachine<usize> for Runtime {
@@ -412,7 +412,7 @@ impl StackMachine<usize> for Runtime {
         swap(&mut left[len - 2], &mut right[0]);
     }
 
-    fn apply(&mut self, nargs: usize) -> Result<(), RuntimeError> {
+    fn apply(&mut self) -> Result<(), RuntimeError> {
         macro_rules! load_to {
             ($runtime:expr, $expr:expr) => {
                 $expr
@@ -420,8 +420,12 @@ impl StackMachine<usize> for Runtime {
                     .map_err(|e| RuntimeError::new(e.to_string()))
             };
         }
+        
         let index = self.pop();
         let operator = self.get_symbol(index)?;
+        let index = self.pop();
+        let nargs = usize::try_from(self.get_number(index)?)?;
+
         match operator {
             Symbol::Nil | Symbol::T => Err(RuntimeError::new(format!(
                 "{self} can not be the head of a list"
@@ -473,22 +477,18 @@ impl StackMachine<usize> for Runtime {
                 })
             }
             Symbol::Sin => {
-                unary_op!(self, nargs, |num| {
-                    Number::Float(f64::from(num).sin())
-                })
+                unary_op!(self, nargs, |num| { Number::Float(f64::from(num).sin()) })
             }
             Symbol::Abs => {
                 unary_op!(self, nargs, |num| {
                     match num {
-                        Number::Int(num) => Number::Int(num.abs()), 
+                        Number::Int(num) => Number::Int(num.abs()),
                         Number::Float(num) => Number::Float(num.abs()),
                     }
                 })
             }
             Symbol::Cos => {
-                unary_op!(self, nargs, |num| {
-                    Number::Float(f64::from(num).cos())
-                })
+                unary_op!(self, nargs, |num| { Number::Float(f64::from(num).cos()) })
             }
             Symbol::Eq => {
                 assert_eq!(nargs, 2);
@@ -744,7 +744,10 @@ impl Runtime {
     }
 
     /// Called when a runtime API is called.
-    pub fn api_called(&mut self, info: String) {
+    pub fn api_called<T>(&mut self, info: T)
+    where
+        T: Display,
+    {
         self.interrupt(DbgState::Step, format!("API called: {info}"));
     }
 
@@ -935,32 +938,65 @@ impl Runtime {
             panic!("Not an environment")
         }
     }
+}
 
-    /// Pop the arguments from the stack and save them in a new environment.
-    ///
-    /// The first element popped has name `#0_func_{func_id}`, the second
-    /// element popped has name `#1_func_{func_id}`, etc.
-    pub fn prepare_args(&mut self, cid: usize, nparams: usize) -> Result<(), RuntimeError> {
-        let c = if let RuntimeNode::Closure(c) = self.get_node(true, cid) {
+// Closures
+impl Runtime {
+    /// Get a closure from the stack, move to an environment whose outer is its `env`.
+    fn move_to_closure_env(&mut self, cid: usize) -> Result<Closure, RuntimeError> {
+        if let RuntimeNode::Closure(c) = self.get_node(true, cid) {
+            let c = c.clone();
+            // Construct and move to an environment.
+            let env = self.new_env("closure".to_string(), c.env);
+            self.move_to_env(env);
             Ok(c)
         } else {
             Err(RuntimeError::new(format!(
                 "{} is not a closure",
                 self.display_node_idx(cid)
             )))
-        }?
-        .clone();
+        }
+    }
 
-        if (!c.variadic && c.nargs != nparams) || (c.variadic && c.nargs > nparams) {
+    /// Push elements of a list to the stack. The list is at the top when the
+    /// function is called. The stack after the function is called should be
+    /// `(top) nargs elem1 elem2 ...`
+    pub fn list_to_stack(&mut self) -> Result<(), RuntimeError> {
+        let mut list = self.pop();
+        let mut elems = vec![];
+        loop {
+            let (car, cdr) = self.get_pair(list)?;
+            list = cdr;
+            elems.push(car);
+            if let Ok(Symbol::Nil) = self.get_symbol(list) {
+                for elem in elems.iter().rev() {
+                    self.push(*elem);
+                }
+                Number::Int(elems.len() as i64)
+                    .load_to(self)
+                    .map_err(|e| RuntimeError::new(e.to_string()))?;
+                return Ok(());
+            }
+        }
+    }
+
+    /// Pop the arguments from the stack and save them in a new environment.
+    ///
+    /// The stack before the function is called should be
+    /// `(top) nargs operand0 operand1 ...`, where `operand0` has name
+    /// `#0_func_{func_id}`, `operand1` has name `#1_func_{func_id}`, etc.
+    pub fn prepare_args(&mut self, cid: usize) -> Result<(), RuntimeError> {
+        let c = self.move_to_closure_env(cid)?;
+
+        let idx = self.pop();
+        let nparams = usize::try_from(self.get_number(idx)?)?;
+
+        if (!c.variadic && c.nargs != nparams) || (c.variadic && c.nargs > nparams + 1) {
             return Err(RuntimeError::new(format!(
                 "arity mismatch: expect {}, found {}",
                 c.nargs, nparams
             )));
         }
-
-        // Construct and move to an environment.
-        let env = self.new_env("closure".to_string(), c.env);
-        self.move_to_env(env);
 
         if c.nargs > 0 {
             // Add arguments to the environment.
@@ -970,10 +1006,15 @@ impl Runtime {
                     .define(&format!("#{i}_func_{}", c.name), value, self);
             }
 
-            // Zip the rest of the arguments (args[c.nargs-1..nparams])
-            // if the closure is variadic.
             if c.variadic {
-                self.zip_stack_nodes(nparams - c.nargs + 1);
+                if c.nargs <= nparams {
+                    // Zip the rest of the arguments (args[c.nargs-1..nparams])
+                    // if the closure is variadic.
+                    self.zip_stack_nodes(nparams - c.nargs + 1);
+                } else {
+                    // Load a '() as the last argument.
+                    Symbol::Nil.load_to(self).unwrap();
+                }
             }
 
             // Add the last argument.

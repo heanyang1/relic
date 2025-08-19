@@ -1,8 +1,7 @@
 //! The logger module.
 
 use std::{
-    str::FromStr,
-    sync::{LazyLock, Mutex},
+    str::FromStr, sync::{LazyLock, Mutex}
 };
 
 use colored::Colorize;
@@ -93,7 +92,7 @@ pub fn set_log_level(level: LogLevel) {
     LOGGER.lock().unwrap().set_log_level(level);
 }
 
-pub fn unwrap_result<T, E>(result: Result<T, E>, default: T) -> T
+pub fn unwrap_result<T, E>(result: Result<T, E>) -> T
 where
     E: ToString,
 {
@@ -101,7 +100,7 @@ where
         Ok(x) => x,
         Err(msg) => {
             log_error(msg.to_string());
-            default
+            std::process::abort()
         }
     }
 }

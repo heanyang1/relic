@@ -10,13 +10,7 @@ pub mod preprocess;
 pub mod runtime;
 pub mod symbol;
 mod util;
-use std::{
-    collections::HashMap,
-    fs::read_to_string,
-    path::PathBuf,
-    str::FromStr,
-    sync::{LazyLock, RwLock},
-};
+use std::sync::{LazyLock, RwLock};
 
 use crate::{
     env::Env,
@@ -24,29 +18,17 @@ use crate::{
     lexer::Number,
     logger::{log_error, log_warning, unwrap_result},
     node::Node,
-    package::{call_library_fn, load_library},
-    preprocess::{Macro, PreProcess},
+    package::load_package,
     runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
     symbol::Symbol,
     util::CVoidFunc,
 };
 
-pub fn file_to_node(
-    input_path: Option<PathBuf>,
-    macros: &mut HashMap<String, Macro>,
-) -> Option<Node> {
-    input_path.map(|file_path| {
-        let file = unwrap_result(read_to_string(file_path), "".to_string());
-        let mut node = unwrap_result(Node::from_str(&file), Node::Symbol(Symbol::Nil));
-        unwrap_result(node.preprocess(macros), Node::Symbol(Symbol::Nil))
-    })
-}
-
-pub fn run_node(node: Node) -> String {
-    unwrap_result(node.jit_compile(false), ());
+pub fn run_node(node: Node) -> Result<String, String> {
+    node.jit_compile(false)?;
     let mut runtime = RT.write().unwrap();
     let index = runtime.pop();
-    runtime.display_node_idx(index)
+    Ok(runtime.display_node_idx(index))
 }
 
 /// The runtime that is pointed by all C bindings.
@@ -136,15 +118,23 @@ pub extern "C" fn rt_new_closure(name: *const u8, func: CVoidFunc, nargs: usize,
 pub extern "C" fn rt_get_c_func(cid: usize) -> Option<CVoidFunc> {
     let mut runtime = RT.write().unwrap();
     runtime.api_called(format!("rt_get_c_func({cid})"));
-    unwrap_result(runtime.get_c_func(cid), None)
+    unwrap_result(runtime.get_c_func(cid))
+}
+
+/// Calls [Runtime::list_to_stack].
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_list_to_stack() {
+    let mut runtime = RT.write().unwrap();
+    runtime.api_called("rt_list_to_stack()");
+    unwrap_result(runtime.list_to_stack());
 }
 
 /// Calls [Runtime::prepare_args].
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_prepare_args(cid: usize, nparams: usize) {
+pub extern "C" fn rt_prepare_args(cid: usize) {
     let mut runtime = RT.write().unwrap();
-    runtime.api_called(format!("rt_prepare_args({cid}, {nparams})"));
-    unwrap_result(runtime.prepare_args(cid, nparams), ());
+    runtime.api_called(format!("rt_prepare_args({cid})"));
+    unwrap_result(runtime.prepare_args(cid));
 }
 
 /// Calls [Runtime::push].
@@ -159,7 +149,7 @@ pub extern "C" fn rt_push(index: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_pop() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_pop()".to_string());
+    rt.api_called("rt_pop()");
     rt.pop()
 }
 
@@ -167,7 +157,7 @@ pub extern "C" fn rt_pop() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_swap() {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_swap()".to_string());
+    rt.api_called("rt_swap()");
     rt.swap()
 }
 
@@ -175,7 +165,7 @@ pub extern "C" fn rt_swap() {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_top() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_top()".to_string());
+    rt.api_called("rt_top()");
     rt.top()
 }
 
@@ -191,10 +181,10 @@ pub extern "C" fn rt_display_node_idx(index: usize) -> *mut i8 {
 
 /// Calls [Runtime::apply].
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_apply(nargs: usize) -> usize {
+pub extern "C" fn rt_apply() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_apply({nargs})"));
-    match rt.apply(nargs) {
+    rt.api_called(format!("rt_apply()"));
+    match rt.apply() {
         Ok(()) => 1,
         Err(e) => {
             log_error(format!("Error in rt_apply: {e}"));
@@ -207,7 +197,7 @@ pub extern "C" fn rt_apply(nargs: usize) -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_read() {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_read()".to_string());
+    rt.api_called("rt_read()");
     let mut input = String::new();
     loop {
         let mut current = String::new();
@@ -235,7 +225,7 @@ pub extern "C" fn rt_new_constant(expr: *const u8) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(expr as *const i8) };
     if let Ok(expr_str) = c_str.to_str() {
         rt.api_called(format!("rt_new_constant({expr_str})"));
-        unwrap_result(expr_str.load_to(&mut rt), ());
+        unwrap_result(expr_str.load_to(&mut rt));
     } else {
         log_error("Error in rt_new_constant: invalid string");
     }
@@ -248,7 +238,7 @@ pub extern "C" fn rt_new_symbol(name: *const u8) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name_str) = c_str.to_str() {
         rt.api_called(format!("rt_new_symbol({name_str})"));
-        unwrap_result(Symbol::from(name_str.to_string()).load_to(&mut rt), ());
+        unwrap_result(Symbol::from(name_str).load_to(&mut rt));
     } else {
         log_error("Error in rt_new_symbol: invalid string");
     }
@@ -274,7 +264,7 @@ pub extern "C" fn rt_new_float(value: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_current_env() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_current_env()".to_string());
+    rt.api_called("rt_current_env()");
     rt.current_env()
 }
 
@@ -464,11 +454,7 @@ pub extern "C" fn rt_import(name: *const u8) {
         if RT.read().unwrap().has_package(name_str) {
             return;
         }
-        let lib =
-            load_library(&format!("./lib/{name_str}.relic")).expect("error importing package");
-        unwrap_result(call_library_fn(&lib, name_str), ());
-        let mut runtime = RT.write().unwrap();
-        runtime.add_package(name_str.to_string(), lib);
+        unwrap_result(load_package(name_str));
     } else {
         log_error("Error in rt_import: invalid string");
     }

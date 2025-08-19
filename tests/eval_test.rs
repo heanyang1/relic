@@ -294,8 +294,19 @@ fn test_lambda_pattern_matching() {
         "(f 'a 'b 3 4)",
         RuntimeNode::Symbol(Symbol::User("a".to_string()))
     );
+
     assert_eval_node!("(define (g . x) (car x))", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_node!("(g 2 3 4)", RuntimeNode::Number(Number::Int(2)));
+
+    assert_eval_node!(
+        "(define (g x . y) (car (cdr y)))",
+        RuntimeNode::Symbol(Symbol::Nil)
+    );
+    assert_eval_node!("(g 2 3 4)", RuntimeNode::Number(Number::Int(4)));
+
+    assert_eval_node!("(define (g x . y) y)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node!("(g 2)", RuntimeNode::Symbol(Symbol::Nil));
+
     assert_eval_node!(
         "(define h (lambda (x . y) (car y)))",
         RuntimeNode::Symbol(Symbol::Nil)
@@ -303,6 +314,7 @@ fn test_lambda_pattern_matching() {
     assert_eval_node!("(h 1 2 3 4)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(h 1 2)", RuntimeNode::Number(Number::Int(2)));
     assert_eval_node!("(h 1 't)", RuntimeNode::Symbol(Symbol::T));
+
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -325,6 +337,20 @@ fn test_function_call() {
         RuntimeNode::Symbol(Symbol::Nil)
     );
     assert_eval_node!("(a '(1 2 3))", RuntimeNode::Number(Number::Int(1)));
+    let mut runtime = RT.write().unwrap();
+    runtime.clear();
+}
+
+#[test]
+#[serial]
+fn test_apply() {
+    rt_start();
+    assert_eval_node!(
+        "(define f (lambda (x y z) (+ x y)))",
+        RuntimeNode::Symbol(Symbol::Nil)
+    );
+    assert_eval_node!("(apply f '(1 2 3))", RuntimeNode::Number(Number::Int(3)));
+
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -435,6 +461,27 @@ fn test_fact() {
 
 #[test]
 #[serial]
+fn test_list() {
+    rt_start();
+    assert_eval_node!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_text!(
+        "(map (lambda (x) (+ x 1)) '(0 1 2 3 4 5 6 7 8 9))",
+        "(1 2 3 4 5 6 7 8 9 10)"
+    );
+    assert_eval_text!(
+        "(list-tail (map (lambda (x) (- x 1)) (iota 10 2 1)) 5)",
+        "(6 7 8 9 10)"
+    );
+    assert_eval_text!(
+        "(map + '(1 2 3) '(3 2 1) '(3 3 3))",
+        "(7 7 7)"
+    );
+    let mut runtime = RT.write().unwrap();
+    runtime.clear();
+}
+
+#[test]
+#[serial]
 fn test_fib() {
     rt_start();
     assert_eval_node!(
@@ -444,20 +491,10 @@ fn test_fib() {
                    ('t (+ (fib (- n 1)) (fib (- n 2)))))))"#,
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
-        r#"(define map
-            (lambda (func l)
-            (cond ((eq? l '()) '())
-                  ('t (cons (func (car l)) (map func (cdr l)))))))"#,
-        RuntimeNode::Symbol(Symbol::Nil)
-    );
     assert_eval_node!("(fib 9)", RuntimeNode::Number(Number::Int(55)));
+    assert_eval_node!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
     assert_eval_text!(
-        "(map (lambda (x) (+ x 1)) '(0 1 2 3 4 5 6 7 8 9))",
-        "(1 2 3 4 5 6 7 8 9 10)"
-    );
-    assert_eval_text!(
-        "(map fib '(0 1 2 3 4 5 6 7 8 9))",
+        "(map fib (iota 10))",
         "(1 1 2 3 5 8 13 21 34 55)"
     );
     let mut runtime = RT.write().unwrap();

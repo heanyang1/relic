@@ -76,8 +76,9 @@ fn parse_test() {
     with_different_gc_size(1, 20, |runtime| {
         "5".load_to(runtime).unwrap();
         "12".load_to(runtime).unwrap();
+        "2".load_to(runtime).unwrap();
         "/".load_to(runtime).unwrap();
-        runtime.apply(2).unwrap();
+        runtime.apply().unwrap();
         let y = runtime.pop();
         assert_eq!(runtime.display_node_idx(y), "2.4");
         "(2 3)".load_to(runtime).unwrap();

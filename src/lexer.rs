@@ -72,6 +72,16 @@ impl From<Number> for f64 {
     }
 }
 
+impl TryFrom<Number> for usize {
+    type Error = String;
+    fn try_from(value: Number) -> Result<Self, Self::Error> {
+        match value {
+            Number::Int(i) if i >= 0 => Ok(i as usize),
+            _ => Err(format!("Can not cast {value} to usize")),
+        }
+    }
+}
+
 impl Div for Number {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {

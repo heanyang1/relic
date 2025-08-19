@@ -158,16 +158,19 @@ struct ContexInfo {
     drop_ret: bool,
 }
 
-/// Calls [Node::compile] with no optimization at the top level.
-pub fn compile(node: &Node, codegen: &mut CodeGen, dbg_info: bool) -> Result<(), String> {
-    node.compile(
-        codegen,
+/// ContexInfo that does not drop anything.
+macro_rules! no_drop {
+    () => {
         ContexInfo {
             drop_env: false,
             drop_ret: false,
-        },
-        dbg_info,
-    )
+        }
+    };
+}
+
+/// Calls [Node::compile] with no optimization at the top level.
+pub fn compile(node: &Node, codegen: &mut CodeGen, dbg_info: bool) -> Result<(), String> {
+    node.compile(codegen, no_drop!(), dbg_info)
 }
 
 /// The trait that defines a way to compile the object.
@@ -319,14 +322,7 @@ fflush(NULL);"#,
                         } else if let Node::Symbol(Symbol::User(name)) = &*params[0].borrow() {
                             // `define` uses both of the environment and the return value.
                             // So do `set*`.
-                            params[1].borrow().compile(
-                                codegen,
-                                ContexInfo {
-                                    drop_env: false,
-                                    drop_ret: false,
-                                },
-                                dbg_info,
-                            )?;
+                            params[1].borrow().compile(codegen, no_drop!(), dbg_info)?;
                             codegen.append_code(&format!("rt_define(\"{name}\", rt_pop());"));
                             return_nil!(codegen, ctx);
                             Ok(())
@@ -371,14 +367,7 @@ fflush(NULL);"#,
                         // The value and environment of precondition must be preserved;
                         // those of the branches can be dropped.
                         let params = get_n_params(cdr.clone(), 3)?;
-                        params[0].borrow().compile(
-                            codegen,
-                            ContexInfo {
-                                drop_env: false,
-                                drop_ret: false,
-                            },
-                            dbg_info,
-                        )?;
+                        params[0].borrow().compile(codegen, no_drop!(), dbg_info)?;
                         codegen.append_code("if (rt_get_bool(rt_pop()) > 0) {");
                         params[1].borrow().compile(codegen, ctx, dbg_info)?;
                         codegen.append_code("} else {");
@@ -424,76 +413,42 @@ fflush(NULL);"#,
                     SpecialForm::Read => {
                         codegen.append_code("rt_read();");
                         Ok(())
-                    },
-                    SpecialForm::Graphviz => todo!(),
+                    }
+                    SpecialForm::Apply => {
+                        let params = get_n_params(cdr.clone(), 2)?;
+                        // operand list
+                        params[1].borrow().compile(codegen, no_drop!(), dbg_info)?;
+
+                        // list -> stack
+                        codegen.append_code(&format!("rt_list_to_stack();"));
+
+                        // operator
+                        params[0].borrow().compile(codegen, no_drop!(), dbg_info)?;
+
+                        call_procedure(ctx, codegen);
+                        Ok(())
+                    }
                     _ => unreachable!(),
                 },
                 _ => {
                     let operands = vectorize(cdr.clone())?;
-                    let len_operands = operands.len();
 
-                    // Keep environment and result
+                    // operands
                     for operand in operands.iter().rev() {
-                        operand.borrow().compile(
-                            codegen,
-                            ContexInfo {
-                                drop_env: false,
-                                drop_ret: false,
-                            },
-                            dbg_info,
-                        )?;
+                        operand.borrow().compile(codegen, no_drop!(), dbg_info)?;
                     }
 
-                    car.borrow().compile(
-                        codegen,
-                        ContexInfo {
-                            drop_env: false,
-                            drop_ret: false,
-                        },
-                        dbg_info,
-                    )?;
+                    // nargs
+                    codegen.append_code(&format!("rt_new_integer({});", operands.len()));
 
-                    let call_closure = if ctx.drop_env {
-                        format!(
-                            r#"
-rt_add_root("__closure", rt_pop());
-rt_prepare_args(rt_get_root("__closure"), {len_operands});
-c_func func = rt_get_c_func(rt_remove_root("__closure"));
-func();
-"#
-                        )
-                    } else {
-                        format!(
-                            r#"
-rt_add_root("__old_env", rt_current_env());
-rt_add_root("__closure", rt_pop());
-rt_prepare_args(rt_get_root("__closure"), {len_operands});
-rt_push(rt_remove_root("__old_env"));
-c_func func = rt_get_c_func(rt_remove_root("__closure"));
-func();
-rt_swap();
-rt_move_to_env(rt_pop());
-"#
-                        )
-                    };
+                    // operator
+                    car.borrow().compile(codegen, no_drop!(), dbg_info)?;
 
-                    codegen.append_code(&format!(
-                        r#"
-if (rt_is_symbol(rt_top())) {{
-    rt_apply({len_operands});
-}} else {{
-    {call_closure}
-}}"#
-                    ));
-
-                    // Drop the result if the caller wants to drop it.
-                    if ctx.drop_ret {
-                        codegen.append_code("rt_pop();");
-                    }
+                    call_procedure(ctx, codegen);
                     Ok(())
                 }
             },
-            Node::SpecialForm(_) => unreachable!(),
+            Node::SpecialForm(_) => unreachable!("{self}"),
             Node::Symbol(sym) => sym.compile(codegen, ctx, dbg_info),
         }?;
         if dbg_info {
@@ -506,5 +461,41 @@ if (rt_is_symbol(rt_top())) {{
             ));
         }
         Ok(())
+    }
+}
+
+fn call_procedure(ctx: ContexInfo, codegen: &mut CodeGen) {
+    let call_closure = if ctx.drop_env {
+        r#"
+rt_add_root("__closure", rt_pop());
+rt_prepare_args(rt_get_root("__closure"));
+c_func func = rt_get_c_func(rt_remove_root("__closure"));
+func();
+"#
+    } else {
+        r#"
+rt_add_root("__old_env", rt_current_env());
+rt_add_root("__closure", rt_pop());
+rt_prepare_args(rt_get_root("__closure"));
+rt_push(rt_remove_root("__old_env"));
+c_func func = rt_get_c_func(rt_remove_root("__closure"));
+func();
+rt_swap();
+rt_move_to_env(rt_pop());
+"#
+    };
+
+    codegen.append_code(&format!(
+        r#"
+if (rt_is_symbol(rt_top())) {{
+    rt_apply();
+}} else {{
+    {call_closure}
+}}"#
+    ));
+
+    // Drop the result if the caller wants to drop it.
+    if ctx.drop_ret {
+        codegen.append_code("rt_pop();");
     }
 }
