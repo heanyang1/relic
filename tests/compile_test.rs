@@ -70,6 +70,7 @@ fn compile(input: &str, filename: &str, output: &str) {
     let mut codegen = CodeGen::new_main();
 
     while let Ok(mut node) = Node::parse(&mut tokens) {
+        println!("{node}");
         let node = node.preprocess(&mut macros).unwrap();
         compile::compile(&node, &mut codegen, false).unwrap();
     }

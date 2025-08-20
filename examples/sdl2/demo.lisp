@@ -19,7 +19,7 @@
      screen-surface 0 0 0
      (get-frame-x frame) (get-frame-y frame) (get-frame-w frame) (get-frame-h frame))
   (sdl-fill-rect-xywh
-   screen-surface (get-color pi) (get-color (- 0 (/ pi 3))) (get-color (/ pi 3))
+   screen-surface (get-color pi) (get-color (/ pi -3)) (get-color (/ pi 3))
    (+ 1 (get-frame-x frame)) (+ 1 (get-frame-y frame)) (- (get-frame-w frame) 2) (- (get-frame-h frame) 2)))
 
 (define (above painter1 painter2)

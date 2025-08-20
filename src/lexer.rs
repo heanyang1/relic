@@ -5,6 +5,8 @@ use std::{
     ops::{Add, Div, Mul, Sub},
 };
 
+use crate::error::ParseError;
+
 #[derive(Debug, Clone)]
 pub enum Number {
     Int(i64),
@@ -170,27 +172,29 @@ impl Lexer {
         }
     }
 
-    pub fn consume(&mut self, token: TokenType) -> Result<(), String> {
-        match self.next() {
-            Some(actual) if actual == token => Ok(()),
-            actual => Err(format!(
+    pub fn consume(&mut self, token: TokenType) -> Result<(), ParseError> {
+        match self.try_next() {
+            Ok(actual) if actual == token => Ok(()),
+            Ok(actual) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Expected {token:?}, found {actual:?}",
                 self.get_cur_pos()
-            )),
+            ))),
+            Err(e) => Err(e),
         }
     }
 
-    pub fn consume_symbol(&mut self) -> Result<String, String> {
-        match self.next() {
-            Some(TokenType::Symbol(sym)) => Ok(sym),
-            actual => Err(format!(
+    pub fn consume_symbol(&mut self) -> Result<String, ParseError> {
+        match self.try_next() {
+            Ok(TokenType::Symbol(sym)) => Ok(sym),
+            Ok(actual) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Expected symbol, found {actual:?}",
                 self.get_cur_pos()
-            )),
+            ))),
+            Err(e) => Err(e),
         }
     }
 
-    fn peek_symbol(&self, cur_pos: usize) -> (usize, Option<TokenType>) {
+    fn peek_symbol(&self, cur_pos: usize) -> Result<(usize, TokenType), ParseError> {
         let mut symbol = String::new();
         let mut cur_pos = cur_pos;
         while let Some(x) = self.raw.chars().nth(cur_pos) {
@@ -200,38 +204,61 @@ impl Lexer {
             symbol.push(x);
             cur_pos += 1;
         }
-        (cur_pos, Some(TokenType::Symbol(symbol)))
+        Ok((cur_pos, TokenType::Symbol(symbol)))
     }
 
-    fn peek_number(&self, pos: usize) -> (usize, Option<TokenType>) {
+    fn peek_number(&self, pos: usize) -> Result<(usize, TokenType), ParseError> {
         let mut cur_pos = pos;
+        enum State {
+            Start,
+            NegSym,
+            Integer,
+            Dot,
+            Float,
+        }
+        let mut state = State::Start;
         while let Some(x) = self.raw.chars().nth(cur_pos) {
-            if !x.is_ascii_digit() && x != '.' {
-                break;
-            }
+            match (x, &mut state) {
+                ('-', State::Start) => state = State::NegSym,
+                (x, State::Start) | (x, State::NegSym) | (x, State::Integer)
+                    if x.is_ascii_digit() =>
+                {
+                    state = State::Integer
+                }
+                ('.', State::Integer) => state = State::Dot,
+                (x, State::Dot) | (x, State::Float) if x.is_ascii_digit() => state = State::Float,
+                _ => break,
+            };
             cur_pos += 1;
         }
         let num_str = self.raw.as_str()[pos..cur_pos].to_string();
-        if num_str.is_empty() {
-            return (cur_pos, None);
-        }
-        if num_str.contains('.') {
-            match num_str.parse::<f64>() {
-                Ok(num) => (cur_pos, Some(TokenType::Number(Number::Float(num)))),
-                Err(_) => (cur_pos, None),
-            }
-        } else {
-            match num_str.parse::<i64>() {
-                Ok(num) => (cur_pos, Some(TokenType::Number(Number::Int(num)))),
-                Err(_) => (cur_pos, None),
-            }
+        match state {
+            // A `-` that does not followed by a digit is parsed as `-` symbol.
+            State::NegSym => Ok((cur_pos, TokenType::Symbol("-".to_string()))),
+            State::Integer => Ok((
+                cur_pos,
+                TokenType::Number(Number::Int(
+                    num_str.parse::<i64>().unwrap(),
+                )),
+            )),
+            State::Float => Ok((
+                cur_pos,
+                TokenType::Number(Number::Float(
+                    num_str.parse::<f64>().unwrap(),
+                )),
+            )),
+            _ => Err(ParseError::SyntaxError(format!(
+                "At position {}: Expected number, found {}",
+                pos,
+                num_str
+            ))),
         }
     }
 
     /// Peek next token, doesn't consume it or change the lexer's state
     /// unless a comment is met (where the comment is consumed and no token
     /// will be generated).
-    pub fn peek_next_token(&mut self) -> (usize, Option<TokenType>) {
+    pub fn peek_next_token(&mut self) -> Result<(usize, TokenType), ParseError> {
         let mut cur_pos = self.cur_pos;
         // remove whitespace
         while let Some(x) = self.raw.chars().nth(cur_pos) {
@@ -243,10 +270,10 @@ impl Lexer {
         }
         match self.raw.chars().nth(cur_pos) {
             Some(ch) => match ch {
-                '(' => (cur_pos + 1, Some(TokenType::LParem)),
-                ')' => (cur_pos + 1, Some(TokenType::RParem)),
-                '\'' => (cur_pos + 1, Some(TokenType::Quote)),
-                '.' => (cur_pos + 1, Some(TokenType::Dot)),
+                '(' => Ok((cur_pos + 1, TokenType::LParem)),
+                ')' => Ok((cur_pos + 1, TokenType::RParem)),
+                '\'' => Ok((cur_pos + 1, TokenType::Quote)),
+                '.' => Ok((cur_pos + 1, TokenType::Dot)),
                 '\"' => {
                     let mut next_pos = cur_pos + 1;
                     while let Some(x) = self.raw.chars().nth(next_pos) {
@@ -255,12 +282,12 @@ impl Lexer {
                         }
                         next_pos += 1;
                     }
-                    (
+                    Ok((
                         next_pos + 1,
-                        Some(TokenType::String(
+                        TokenType::String(
                             self.raw.as_str()[cur_pos + 1..next_pos].into(),
-                        )),
-                    )
+                        ),
+                    ))
                 }
                 // Comment starts with `;` and ends with `\n`.
                 ';' => {
@@ -274,19 +301,27 @@ impl Lexer {
                     self.cur_pos = next_pos;
                     self.peek_next_token()
                 }
-                x if x.is_ascii_digit() => self.peek_number(cur_pos),
+                x if x == '-' || x.is_ascii_digit() => self.peek_number(cur_pos),
                 _ => self.peek_symbol(cur_pos),
             },
-            None => (cur_pos, None), // EOF
+            None => Err(ParseError::EOF), // EOF
         }
+    }
+
+    pub fn try_next(&mut self) -> Result<TokenType, ParseError> {
+        let (next_pos, token) = self.peek_next_token()?;
+        self.cur_pos = next_pos;
+        Ok(token)
     }
 }
 
 impl Iterator for Lexer {
     type Item = TokenType;
     fn next(&mut self) -> Option<Self::Item> {
-        let (next_pos, token) = self.peek_next_token();
-        self.cur_pos = next_pos;
-        token
+        match self.try_next() {
+            Ok(token) => Some(token),
+            Err(ParseError::EOF) => None,
+            Err(e) => panic!("lexer error: {e}"),
+        }
     }
 }

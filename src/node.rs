@@ -9,10 +9,7 @@ use std::{
 };
 
 use crate::{
-    lexer::{Lexer, Number},
-    nil,
-    parser::Parse,
-    symbol::{SpecialForm, Symbol},
+    error::ParseError, lexer::{Lexer, Number}, nil, parser::Parse, symbol::{SpecialForm, Symbol}
 };
 
 /// The data structure of the node in reference counting graph.
@@ -255,7 +252,7 @@ impl FromStr for Node {
         let mut tokens = Lexer::new(s);
         let mut nodes = vec![];
         loop {
-            if tokens.peek_next_token().1.is_none() {
+            if let Err(ParseError::EOF) = tokens.peek_next_token() {
                 // Create a `(begin ...)` node
                 return Ok(Node::Pair(
                     Node::SpecialForm(SpecialForm::Begin).into(),

@@ -59,9 +59,9 @@
 (newline)
 (display ((h 'func) 5 't))
 (newline)
-(display ((h 'func) (- 0 5) 't))
+(display ((h 'func) -5 't))
 (newline)
-(display ((h 'func) (- 0 5) '()))
+(display ((h 'func) -5 '()))
 (newline)
 ;; q = (f * id) ; (id * g) ; (h * id)
 (define q (morphism/compose
@@ -69,6 +69,6 @@
            (morphism/compose
             (morphism/product morphism/identity g)
             (morphism/product h morphism/identity))))
-(display ((q 'func) (- 0 2) 3))
+(display ((q 'func) -2 3))
 (newline)
 (display ((q 'func) 2 3))

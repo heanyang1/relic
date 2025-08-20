@@ -232,9 +232,9 @@ macro_rules! pop_on_err {
 
 impl LoadToRuntime for &mut Lexer {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
-        match self.next() {
-            Some(TokenType::LParem) => parse_list(self, runtime),
-            Some(TokenType::Quote) => {
+        match self.try_next() {
+            Ok(TokenType::LParem) => parse_list(self, runtime),
+            Ok(TokenType::Quote) => {
                 Symbol::Nil.load_to(runtime)?;
                 pop_on_err!(self.load_to(runtime), runtime, 1);
                 runtime.new_pair();
@@ -246,8 +246,8 @@ impl LoadToRuntime for &mut Lexer {
                 runtime.new_pair();
                 Ok(())
             }
-            Some(TokenType::Number(i)) => i.load_to(runtime),
-            Some(TokenType::String(str)) => {
+            Ok(TokenType::Number(i)) => i.load_to(runtime),
+            Ok(TokenType::String(str)) => {
                 Symbol::Nil.load_to(runtime)?;
                 pop_on_err!(Symbol::from(str).load_to(runtime), runtime, 1);
                 runtime.new_pair();
@@ -259,16 +259,16 @@ impl LoadToRuntime for &mut Lexer {
                 runtime.new_pair();
                 Ok(())
             }
-            Some(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
-            Some(TokenType::RParem) => Err(ParseError::SyntaxError(format!(
+            Ok(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
+            Ok(TokenType::RParem) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Unexpected ')'",
                 self.get_cur_pos()
             ))),
-            Some(TokenType::Dot) => Err(ParseError::SyntaxError(format!(
+            Ok(TokenType::Dot) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Unexpected '.'",
                 self.get_cur_pos()
             ))),
-            None => Err(ParseError::EOF),
+            Err(e) => Err(e),
         }
     }
 }
@@ -283,11 +283,11 @@ impl LoadToRuntime for &mut Lexer {
 fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), ParseError> {
     macro_rules! consume {
         ($tokens:expr, $ty:expr) => {
-            $tokens.consume($ty).map_err(ParseError::SyntaxError)
+            $tokens.consume($ty)
         };
     }
-    match tokens.peek_next_token().1 {
-        Some(TokenType::RParem) => {
+    match tokens.peek_next_token() {
+        Ok((_, TokenType::RParem)) => {
             // case 1
             consume!(tokens, TokenType::RParem)?;
             Symbol::Nil.load_to(runtime)
@@ -296,7 +296,7 @@ fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), ParseErro
             tokens.load_to(runtime)?; // car
 
             // cdr
-            if let Some(TokenType::Dot) = tokens.peek_next_token().1 {
+            if let Ok((_, TokenType::Dot)) = tokens.peek_next_token() {
                 // case 3
                 pop_on_err!(consume!(tokens, TokenType::Dot), runtime, 1); // pop car
                 pop_on_err!(tokens.load_to(runtime), runtime, 1);

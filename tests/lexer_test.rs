@@ -18,8 +18,13 @@ fn param() {
 #[test]
 fn numeric() {
     assert_eq!(
-        Lexer::new("123456").collect::<Vec<TokenType>>(),
-        vec![TokenType::Number(Number::Int(123456))]
+        Lexer::new("123456 123.456 -123 -4.56").collect::<Vec<TokenType>>(),
+        vec![
+            TokenType::Number(Number::Int(123456)),
+            TokenType::Number(Number::Float(123.456)),
+            TokenType::Number(Number::Int(-123)),
+            TokenType::Number(Number::Float(-4.56)),
+        ]
     )
 }
 
