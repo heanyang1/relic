@@ -420,7 +420,7 @@ fflush(NULL);"#,
                         params[1].borrow().compile(codegen, no_drop!(), dbg_info)?;
 
                         // list -> stack
-                        codegen.append_code(&format!("rt_list_to_stack();"));
+                        codegen.append_code("rt_list_to_stack();");
 
                         // operator
                         params[0].borrow().compile(codegen, no_drop!(), dbg_info)?;

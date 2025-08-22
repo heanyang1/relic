@@ -183,7 +183,7 @@ pub extern "C" fn rt_display_node_idx(index: usize) -> *mut i8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_apply() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_apply()"));
+    rt.api_called("rt_apply()".to_string());
     match rt.apply() {
         Ok(()) => 1,
         Err(e) => {

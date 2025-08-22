@@ -1,9 +1,11 @@
-use std::{collections::HashMap, fs::File, io::Write, path::PathBuf};
+use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, sync::Arc};
 
+use rustyline::Context;
+use rustyline::completion::{Completer, Pair};
+use rustyline::highlight::Highlighter;
 use rustyline::history::FileHistory;
+use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{Editor, error::ReadlineError};
-
-mod repl_complete;
 
 use relic::{
     RT,
@@ -21,6 +23,60 @@ use relic::{
 };
 
 use clap::{Parser, ValueEnum};
+
+pub struct RelicCompleter {
+    pub candidates: Arc<Vec<String>>,
+}
+
+// Implement Helper as a marker trait
+impl rustyline::Helper for RelicCompleter {}
+
+// Implement Hinter as a no-op
+impl rustyline::hint::Hinter for RelicCompleter {
+    type Hint = String;
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<String> {
+        None
+    }
+}
+
+// Implement Highlighter as a no-op
+impl Highlighter for RelicCompleter {}
+
+// Implement Validator as always valid
+impl Validator for RelicCompleter {
+    fn validate(
+        &self,
+        _ctx: &mut ValidationContext,
+    ) -> Result<ValidationResult, rustyline::error::ReadlineError> {
+        Ok(ValidationResult::Valid(None))
+    }
+}
+
+impl Completer for RelicCompleter {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
+    ) -> Result<(usize, Vec<Pair>), rustyline::error::ReadlineError> {
+        let start = line[..pos]
+            .rfind(|c: char| c.is_whitespace() || c == '(')
+            .map_or(0, |i| i + 1);
+        let word = &line[start..pos];
+        let matches = self
+            .candidates
+            .iter()
+            .filter(|s| s.starts_with(word))
+            .map(|s| Pair {
+                display: s.clone(),
+                replacement: s.clone(),
+            })
+            .collect();
+        Ok((start, matches))
+    }
+}
 
 #[derive(Debug, Clone, ValueEnum)]
 enum Mode {
@@ -165,10 +221,10 @@ fn main() {
             candidates.extend(SPECIAL_FORMS.keys().map(|&k| k.to_string()));
             candidates.sort();
             candidates.dedup();
-            let completer = repl_complete::RelicCompleter {
+            let completer = RelicCompleter {
                 candidates: Arc::new(candidates),
             };
-            let mut rl = Editor::<repl_complete::RelicCompleter, FileHistory>::new().unwrap();
+            let mut rl = Editor::<RelicCompleter, FileHistory>::new().unwrap();
             rl.set_helper(Some(completer));
             let _ = rl.load_history(".relic_history");
 
@@ -205,9 +261,9 @@ fn main() {
                         match Node::parse(&mut tokens) {
                             Ok(mut node) => {
                                 // Successful parse, execute and clear buffer
-                                match node.preprocess(&mut macros).and_then(|node| run_node(node)) {
+                                match node.preprocess(&mut macros).and_then(run_node) {
                                     Ok(result) => {
-                                        println!("= {}", result);
+                                        println!("= {result}");
                                         rl.add_history_entry(input_buffer.trim()).unwrap();
                                     }
                                     Err(msg) => {

@@ -323,7 +323,7 @@ impl<T: Into<String>> From<T> for Symbol {
         SYMBOLS
             .get(value.as_str())
             .cloned()
-            .unwrap_or_else(|| Symbol::User(value))
+            .unwrap_or(Symbol::User(value))
     }
 }
 

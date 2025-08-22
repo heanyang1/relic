@@ -248,9 +248,7 @@ impl Lexer {
                 )),
             )),
             _ => Err(ParseError::SyntaxError(format!(
-                "At position {}: Expected number, found {}",
-                pos,
-                num_str
+                "At position {pos}: Expected number, found {num_str}"
             ))),
         }
     }
