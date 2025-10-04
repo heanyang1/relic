@@ -1,12 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
     use relic::lexer::{Lexer, Number};
     use relic::node::Node;
     use relic::parser::Parse;
-    use relic::runtime::{LoadToRuntime, Runtime, StackMachine};
     use relic::symbol::{SpecialForm, Symbol};
     use relic::{nil, vec_to_list};
 
@@ -148,17 +144,5 @@ mod tests {
             let result = Node::parse(&mut lexer);
             assert!(result.is_err());
         }
-    }
-
-    #[test]
-    fn test_display() {
-        let input = "((* 1 (+ 2 3)) (4 5 . 6) (car (((7) 8)) cdr))";
-        let mut lexer = Lexer::new(input);
-        let result = Node::parse(&mut lexer);
-        let node: Rc<RefCell<Node>> = result.unwrap().into();
-        let mut runtime = Runtime::new(1);
-        node.load_to(&mut runtime).unwrap();
-        let node = runtime.pop();
-        assert_eq!(format!("{}", runtime.display_node_idx(node)), input);
     }
 }

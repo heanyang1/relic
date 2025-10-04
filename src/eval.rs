@@ -9,7 +9,7 @@ use crate::{
     graph::PrintState,
     lexer::Number,
     nil,
-    node::{pattern_matching, Node, NodeEnv, Pattern},
+    node::{Node, NodeEnv, Pattern, pattern_matching},
     symbol::{SpecialForm, Symbol},
     util::{eval_arith, eval_rel, exactly_n_params, get_n_params, vectorize},
 };
@@ -230,20 +230,6 @@ where
                 }
                 Ok(cur_result)
             }
-            // SpecialForm::Or => {
-            //     let params = vectorize(cdr)?;
-            //     if params.is_empty() {
-            //         return Ok(result.bind_node(nil!().into()));
-            //     }
-            //     let mut cur_result = result;
-            //     for param in params {
-            //         cur_result = param.borrow().eval(env.clone(), cur_result)?;
-            //         if *cur_result.node().borrow() != nil!() {
-            //             return Ok(cur_result);
-            //         }
-            //     }
-            //     Ok(cur_result)
-            // }
             // display
             SpecialForm::Display => {
                 let params = get_n_params(cdr, 1)?;
@@ -289,63 +275,61 @@ where
         cdr: Rc<RefCell<Node>>,
         result: T,
     ) -> Result<T, String> {
-        // dirty trick for deep recursive functions. See `stacker` package's documentation.
-        stacker::maybe_grow(32 * 1024, 1024 * 1024, || {
-            let mut result = result;
-            let nodes = vectorize(cdr)?;
-            let mut params = Vec::new();
-            for node in nodes {
-                result = node.borrow().eval(env.clone(), result)?;
-                params.push(result.node());
-            }
+        let mut result = result;
+        let nodes = vectorize(cdr)?;
+        let mut params = Vec::new();
+        for node in nodes {
+            result = node.borrow().eval(env.clone(), result)?;
+            params.push(result.node());
+        }
 
-            let node =
-                match self {
-                    Symbol::User(_) => panic!("Should have been evaluated"),
-                    Symbol::T | Symbol::Nil => Err(format!("{self} can not be the head of a list")),
-                    // arithmetic
-                    Symbol::Add => arith_op!(params, +),
-                    Symbol::Sub => arith_op!(params, -),
-                    Symbol::Mul => arith_op!(params, *),
-                    Symbol::Div => arith_op!(params, /),
-                    // relational
-                    Symbol::EqNum => rel_op!(params, ==),
-                    Symbol::Lt => rel_op!(params, <),
-                    Symbol::Gt => rel_op!(params, >),
-                    Symbol::Le => rel_op!(params, <=),
-                    Symbol::Ge => rel_op!(params, >=),
-                    // list
-                    Symbol::List => Ok(Node::from_iter(params.into_iter()).into()),
-                    Symbol::Car => exactly_n_params(&params, 1)
-                        .and_then(|_| Ok(params[0].borrow().as_pair()?.0)),
-                    Symbol::Cdr => exactly_n_params(&params, 1)
-                        .and_then(|_| Ok(params[0].borrow().as_pair()?.1)),
-                    Symbol::Cons => exactly_n_params(&params, 2)
-                        .map(|_| Node::Pair(params[0].clone(), params[1].clone()).into()),
-                    Symbol::Atom => exactly_n_params(&params, 1).map(|_| {
-                        let node = params[0].borrow().as_pair();
-                        Node::Symbol(if node.is_err() {
-                            Symbol::T
-                        } else {
-                            Symbol::Nil
-                        })
-                        .into()
-                    }),
-                    Symbol::Eq => exactly_n_params(&params, 2).map(|_| {
-                        Node::Symbol(if params[0] == params[1] {
-                            Symbol::T
-                        } else {
-                            Symbol::Nil
-                        })
-                        .into()
-                    }),
-                    Symbol::Number => exactly_n_params(&params, 1).map(|_| {
-                        let node = params[0].borrow().as_int();
-                        Node::Symbol(if node.is_ok() { Symbol::T } else { Symbol::Nil }).into()
-                    }),
-                }?;
-            Ok(result.bind_node(node))
-        })
+        let node = match self {
+            Symbol::User(_) => panic!("Should have been evaluated"),
+            Symbol::T | Symbol::Nil => Err(format!("{self} can not be the head of a list")),
+            // arithmetic
+            Symbol::Add => arith_op!(params, +),
+            Symbol::Sub => arith_op!(params, -),
+            Symbol::Mul => arith_op!(params, *),
+            Symbol::Div => arith_op!(params, /),
+            // relational
+            Symbol::EqNum => rel_op!(params, ==),
+            Symbol::Lt => rel_op!(params, <),
+            Symbol::Gt => rel_op!(params, >),
+            Symbol::Le => rel_op!(params, <=),
+            Symbol::Ge => rel_op!(params, >=),
+            // list
+            Symbol::List => Ok(Node::from_iter(params.into_iter()).into()),
+            Symbol::Car => {
+                exactly_n_params(&params, 1).and_then(|_| Ok(params[0].borrow().as_pair()?.0))
+            }
+            Symbol::Cdr => {
+                exactly_n_params(&params, 1).and_then(|_| Ok(params[0].borrow().as_pair()?.1))
+            }
+            Symbol::Cons => exactly_n_params(&params, 2)
+                .map(|_| Node::Pair(params[0].clone(), params[1].clone()).into()),
+            Symbol::Atom => exactly_n_params(&params, 1).map(|_| {
+                let node = params[0].borrow().as_pair();
+                Node::Symbol(if node.is_err() {
+                    Symbol::T
+                } else {
+                    Symbol::Nil
+                })
+                .into()
+            }),
+            Symbol::Eq => exactly_n_params(&params, 2).map(|_| {
+                Node::Symbol(if params[0] == params[1] {
+                    Symbol::T
+                } else {
+                    Symbol::Nil
+                })
+                .into()
+            }),
+            Symbol::Number => exactly_n_params(&params, 1).map(|_| {
+                let node = params[0].borrow().as_int();
+                Node::Symbol(if node.is_ok() { Symbol::T } else { Symbol::Nil }).into()
+            }),
+        }?;
+        Ok(result.bind_node(node))
     }
 }
 
@@ -354,24 +338,22 @@ where
     T: EvalResult,
 {
     fn eval(&self, env: Rc<RefCell<NodeEnv>>, result: T) -> Result<T, String> {
-        stacker::maybe_grow(32 * 1024, 1024 * 1024, || {
-            let self_ref = Rc::new(RefCell::new(self.clone()));
-            let result = match self {
-                Node::Symbol(sym) => sym.eval(env.clone(), result),
-                Node::Number(_) | Node::Procedure(_, _, _) | Node::SpecialForm(_) => {
-                    Ok(result.bind_node(self.clone().into()))
-                }
-                Node::Pair(car, cdr) => {
-                    let result = car.borrow().eval(env.clone(), result)?;
-                    result
-                        .node()
-                        .borrow()
-                        .apply(env.clone(), cdr.clone(), result)
-                }
-            }?;
-            let node = result.node();
-            Ok(result.bind_eval(self_ref, node, env))
-        })
+        let self_ref = Rc::new(RefCell::new(self.clone()));
+        let result = match self {
+            Node::Symbol(sym) => sym.eval(env.clone(), result),
+            Node::Number(_) | Node::Procedure(_, _, _) | Node::SpecialForm(_) => {
+                Ok(result.bind_node(self.clone().into()))
+            }
+            Node::Pair(car, cdr) => {
+                let result = car.borrow().eval(env.clone(), result)?;
+                result
+                    .node()
+                    .borrow()
+                    .apply(env.clone(), cdr.clone(), result)
+            }
+        }?;
+        let node = result.node();
+        Ok(result.bind_eval(self_ref, node, env))
     }
 }
 

@@ -1,6 +1,6 @@
 //! Utility functions.
 
-use std::{cell::RefCell, collections::HashMap, ffi::c_void, fmt::Display, rc::Rc};
+use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::{lexer::Number, nil, node::Node, symbol::Symbol};
 
@@ -24,16 +24,6 @@ pub fn get_n_params(lst: Rc<RefCell<Node>>, n: usize) -> Result<Vec<Rc<RefCell<N
     let result = vectorize(lst)?;
     exactly_n_params(&result, n)?;
     Ok(result)
-}
-
-pub fn map_to_assoc_lst<K, V>(map: &HashMap<K, V>) -> Vec<(K, V)>
-where
-    K: Clone,
-    V: Clone,
-{
-    map.iter()
-        .map(|(name, val)| (name.clone(), val.clone()))
-        .collect()
 }
 
 pub fn eval_arith<N, Op>(values: Vec<N>, op: Op) -> Result<Number, String>
@@ -94,5 +84,3 @@ pub fn vectorize(lst: Rc<RefCell<Node>>) -> Result<Vec<Rc<RefCell<Node>>>, Strin
     }
     Ok(result)
 }
-
-pub type CVoidFunc = extern "C" fn() -> c_void;
