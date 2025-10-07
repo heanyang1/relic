@@ -725,6 +725,12 @@ impl Runtime {
         self.dbg_state = next_state;
     }
 
+    /// Called when there is an error.
+    pub fn error(&mut self, msg: &str) {
+        log_error(msg);
+        self.interrupt(DbgState::Normal, "Break on error".to_string());
+    }
+
     /// Called when a breakpoint is hit.
     pub fn breakpoint(&mut self) {
         self.interrupt(DbgState::Normal, "Hit a breakpoint".to_string());

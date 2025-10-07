@@ -16,13 +16,26 @@ use crate::{
     env::Env,
     error::ParseError,
     lexer::Number,
-    logger::{log_error, log_warning, unwrap_result},
+    logger::log_warning,
     node::Node,
     package::load_package,
     runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
     symbol::Symbol,
     util::CVoidFunc,
 };
+
+pub fn unwrap_result<T, E>(result: Result<T, E>, rt: &mut Runtime) -> T
+where
+    E: ToString,
+{
+    match result {
+        Ok(x) => x,
+        Err(msg) => {
+            rt.error(&msg.to_string());
+            std::process::abort()
+        }
+    }
+}
 
 pub fn run_node(node: Node) -> Result<String, String> {
     node.jit_compile(false)?;
@@ -50,7 +63,7 @@ pub extern "C" fn rt_add_root(name: *const u8, value: usize) -> usize {
         rt.add_root(name_str.to_string(), value);
         1
     } else {
-        log_error("Error in rt_set_root: invalid string");
+        rt.error("Error in rt_set_root: invalid string");
         0
     }
 }
@@ -64,7 +77,7 @@ pub extern "C" fn rt_set_root(name: *const u8, value: usize) -> usize {
         rt.set_root(name_str.to_string(), value);
         1
     } else {
-        log_error("Error in rt_set_root: invalid string");
+        rt.error("Error in rt_set_root: invalid string");
         0
     }
 }
@@ -72,12 +85,13 @@ pub extern "C" fn rt_set_root(name: *const u8, value: usize) -> usize {
 /// Calls [Runtime::get_root].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_root(name: *const u8) -> usize {
-    let rt = RT.read().unwrap();
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name_str) = c_str.to_str() {
+        let rt = RT.read().unwrap();
         rt.get_root(name_str)
     } else {
-        log_error("Error in rt_get_root: invalid string");
+        let mut rt = RT.write().unwrap();
+        rt.error("Error in rt_get_root: invalid string");
         0
     }
 }
@@ -90,7 +104,7 @@ pub extern "C" fn rt_remove_root(name: *const u8) -> usize {
     if let Ok(name_str) = c_str.to_str() {
         rt.remove_root(name_str)
     } else {
-        log_error("Error in rt_remove_root: invalid string");
+        rt.error("Error in rt_remove_root: invalid string");
         0
     }
 }
@@ -99,8 +113,8 @@ pub extern "C" fn rt_remove_root(name: *const u8) -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_closure(name: *const u8, func: CVoidFunc, nargs: usize, variadic: bool) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
+    let mut rt = RT.write().unwrap();
     if let Ok(name) = c_str.to_str() {
-        let mut rt = RT.write().unwrap();
         rt.api_called(format!(
             "rt_new_closure({name}, <func>, {nargs}, {variadic})"
         ));
@@ -109,7 +123,7 @@ pub extern "C" fn rt_new_closure(name: *const u8, func: CVoidFunc, nargs: usize,
         let val = Closure::new(name.to_string(), func, nargs, variadic, &rt);
         val.load_to(&mut rt).unwrap();
     } else {
-        log_error("Error in rt_remove_root: invalid string");
+        rt.error("Error in rt_remove_root: invalid string");
     }
 }
 
@@ -118,7 +132,7 @@ pub extern "C" fn rt_new_closure(name: *const u8, func: CVoidFunc, nargs: usize,
 pub extern "C" fn rt_get_c_func(cid: usize) -> Option<CVoidFunc> {
     let mut runtime = RT.write().unwrap();
     runtime.api_called(format!("rt_get_c_func({cid})"));
-    unwrap_result(runtime.get_c_func(cid))
+    unwrap_result(runtime.get_c_func(cid), &mut runtime)
 }
 
 /// Calls [Runtime::list_to_stack].
@@ -126,7 +140,7 @@ pub extern "C" fn rt_get_c_func(cid: usize) -> Option<CVoidFunc> {
 pub extern "C" fn rt_list_to_stack() {
     let mut runtime = RT.write().unwrap();
     runtime.api_called("rt_list_to_stack()");
-    unwrap_result(runtime.list_to_stack());
+    unwrap_result(runtime.list_to_stack(), &mut runtime);
 }
 
 /// Calls [Runtime::prepare_args].
@@ -134,7 +148,7 @@ pub extern "C" fn rt_list_to_stack() {
 pub extern "C" fn rt_prepare_args(cid: usize) {
     let mut runtime = RT.write().unwrap();
     runtime.api_called(format!("rt_prepare_args({cid})"));
-    unwrap_result(runtime.prepare_args(cid));
+    unwrap_result(runtime.prepare_args(cid), &mut runtime);
 }
 
 /// Calls [Runtime::push].
@@ -187,7 +201,7 @@ pub extern "C" fn rt_apply() -> usize {
     match rt.apply() {
         Ok(()) => 1,
         Err(e) => {
-            log_error(format!("Error in rt_apply: {e}"));
+            rt.error(&format!("Error in rt_apply: {e}"));
             0
         }
     }
@@ -209,7 +223,7 @@ pub extern "C" fn rt_read() {
                 continue;
             }
             Err(e) => {
-                log_error(format!("Error in rt_read: {e}"));
+                rt.error(&format!("Error in rt_read: {e}"));
                 let nil = rt.new_node_with_gc(RuntimeNode::Symbol(Symbol::Nil));
                 rt.push(nil);
                 break;
@@ -225,9 +239,9 @@ pub extern "C" fn rt_new_constant(expr: *const u8) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(expr as *const i8) };
     if let Ok(expr_str) = c_str.to_str() {
         rt.api_called(format!("rt_new_constant({expr_str})"));
-        unwrap_result(expr_str.load_to(&mut rt));
+        unwrap_result(expr_str.load_to(&mut rt), &mut rt);
     } else {
-        log_error("Error in rt_new_constant: invalid string");
+        rt.error("Error in rt_new_constant: invalid string");
     }
 }
 
@@ -238,9 +252,9 @@ pub extern "C" fn rt_new_symbol(name: *const u8) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name_str) = c_str.to_str() {
         rt.api_called(format!("rt_new_symbol({name_str})"));
-        unwrap_result(Symbol::from(name_str).load_to(&mut rt));
+        unwrap_result(Symbol::from(name_str).load_to(&mut rt), &mut rt);
     } else {
-        log_error("Error in rt_new_symbol: invalid string");
+        rt.error("Error in rt_new_symbol: invalid string");
     }
 }
 
@@ -282,13 +296,14 @@ pub extern "C" fn rt_define(key: *const u8, value: usize) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
     let mut env = rt_current_env();
     if let Ok(key_str) = c_str.to_str() {
-        {
-            let mut rt = RT.write().unwrap();
-            rt.api_called(format!("rt_define({key_str}, {value})"));
-        }
+        RT.write()
+            .unwrap()
+            .api_called(format!("rt_define({key_str}, {value})"));
         env.define(&key_str.to_string(), value, &mut RT.write().unwrap());
     } else {
-        log_error("Error in rt_define: invalid string");
+        RT.write()
+            .unwrap()
+            .error("Error in rt_define: invalid string");
     }
 }
 /// Calls [Env::set].
@@ -297,18 +312,19 @@ pub extern "C" fn rt_set(key: *const u8, value: usize) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
     let mut env = rt_current_env();
     if let Ok(key_str) = c_str.to_str() {
-        {
-            let mut rt = RT.write().unwrap();
-            rt.api_called(format!("rt_set({key_str}, {value})"));
-        }
+        RT.write()
+            .unwrap()
+            .api_called(format!("rt_set({key_str}, {value})"));
         if env
             .set(&key_str.to_string(), value, &mut RT.write().unwrap())
             .is_none()
         {
-            log_error(format!("Error in rt_set: variable {key_str} not found"));
+            RT.write()
+                .unwrap()
+                .error(&format!("Error in rt_set: variable {key_str} not found"));
         }
     } else {
-        log_error("Error in rt_set: invalid string");
+        RT.write().unwrap().error("Error in rt_set: invalid string");
     }
 }
 /// Calls [Env::get].
@@ -317,10 +333,7 @@ pub extern "C" fn rt_get(key: *const u8) -> usize {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
     let env = rt_current_env();
     if let Ok(key_str) = c_str.to_str() {
-        {
-            let mut rt = RT.write().unwrap();
-            rt.api_called(format!("rt_get({key_str})"));
-        }
+        RT.write().unwrap().api_called(format!("rt_get({key_str})"));
         let mut runtime = RT.write().unwrap();
         match env.get(&key_str.to_string(), &runtime) {
             Some(val) => val,
@@ -332,7 +345,7 @@ pub extern "C" fn rt_get(key: *const u8) -> usize {
             }
         }
     } else {
-        log_error("Error in rt_get: invalid string");
+        RT.write().unwrap().error("Error in rt_get: invalid string");
         0
     }
 }
@@ -345,7 +358,7 @@ pub extern "C" fn rt_set_car(index: usize, target: usize) -> usize {
     match rt.set_car(true, index, target) {
         Ok(()) => index,
         Err(e) => {
-            log_error(format!("Error in rt_set_car: {e}"));
+            rt.error(&format!("Error in rt_set_car: {e}"));
             0
         }
     }
@@ -359,7 +372,7 @@ pub extern "C" fn rt_set_cdr(index: usize, target: usize) -> usize {
     match rt.set_cdr(true, index, target) {
         Ok(()) => index,
         Err(e) => {
-            log_error(format!("Error in rt_set_cdr: {e}"));
+            rt.error(&format!("Error in rt_set_cdr: {e}"));
             0
         }
     }
@@ -373,11 +386,11 @@ pub extern "C" fn rt_get_integer(index: usize) -> i64 {
     match rt.get_number(index) {
         Ok(Number::Int(val)) => val,
         Ok(_) => {
-            log_error("Error in rt_get_integer: expected integer number");
+            rt.error("Error in rt_get_integer: expected integer number");
             0
         }
         Err(e) => {
-            log_error(format!("Error in rt_get_integer: {e}"));
+            rt.error(&format!("Error in rt_get_integer: {e}"));
             0
         }
     }
@@ -391,11 +404,11 @@ pub extern "C" fn rt_get_float(index: usize) -> f64 {
     match rt.get_number(index) {
         Ok(Number::Float(val)) => val,
         Ok(_) => {
-            log_error("Error in rt_get_float: expected float number");
+            rt.error("Error in rt_get_float: expected float number");
             0.0
         }
         Err(e) => {
-            log_error(format!("Error in rt_get_float: {e}"));
+            rt.error(&format!("Error in rt_get_float: {e}"));
             0.0
         }
     }
@@ -413,7 +426,7 @@ pub extern "C" fn rt_get_symbol(index: usize) -> *mut i8 {
             c_str.into_raw()
         }
         Err(e) => {
-            log_error(format!("Error in rt_get_symbol: {e}"));
+            rt.error(&format!("Error in rt_get_symbol: {e}"));
             std::ptr::null_mut()
         }
     }
@@ -447,16 +460,17 @@ pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
 pub extern "C" fn rt_import(name: *const u8) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name_str) = c_str.to_str() {
-        {
-            let mut rt = RT.write().unwrap();
-            rt.api_called(format!("rt_import({name_str})"));
-        }
+        RT.write()
+            .unwrap()
+            .api_called(format!("rt_import({name_str})"));
         if RT.read().unwrap().has_package(name_str) {
             return;
         }
-        unwrap_result(load_package(name_str));
+        unwrap_result(load_package(name_str), &mut RT.write().unwrap());
     } else {
-        log_error("Error in rt_import: invalid string");
+        RT.write()
+            .unwrap()
+            .error("Error in rt_import: invalid string");
     }
 }
 
@@ -470,9 +484,10 @@ pub extern "C" fn rt_breakpoint() {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_evaluated(info: *const u8, optimized: i32) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(info as *const i8) };
+    let mut rt = RT.write().unwrap();
     if let Ok(info) = c_str.to_str() {
-        RT.write().unwrap().evaluated(info, optimized == 1);
+        rt.evaluated(info, optimized == 1);
     } else {
-        log_error("Error in rt_import: invalid string");
+        rt.error("Error in rt_import: invalid string");
     }
 }

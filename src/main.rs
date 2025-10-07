@@ -13,13 +13,14 @@ use relic::{
     env::Env,
     error::ParseError,
     lexer::Lexer,
-    logger::{LogLevel, log_debug, log_error, set_log_level, unwrap_result},
+    logger::{LogLevel, log_debug, log_error, set_log_level},
     node::Node,
     package::file_to_node,
     parser::Parse,
     preprocess::PreProcess,
     rt_start, run_node,
     runtime::{DbgState, Runtime, StackMachine},
+    unwrap_result,
 };
 
 use clap::{Parser, ValueEnum};
@@ -169,14 +170,14 @@ fn dbg_loop(runtime: &Runtime) -> DbgState {
                                 };
                             }
                             None => log_error(
-                                "Wrong input. Available commands: (s)tep, (n)ext, (c)ontinue, (p)rint, (r)untime. Press C-c to quit.",
+                                "Wrong input. Available commands: (s)tep, (n)ext, (c)ontinue, (p)rint, (r)untime. Press C-d to quit.",
                             ),
                         }
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                log_error("Use 'quit' or Ctrl-D to exit the debugger");
+                log_error("Use C-d to exit the debugger");
                 continue;
             }
             Err(ReadlineError::Eof) => {
@@ -196,13 +197,13 @@ fn main() {
     let mut macros = HashMap::new();
     let input_node = cli
         .input_path
-        .map(|path| unwrap_result(file_to_node(path, &mut macros)));
+        .map(|path| unwrap_result(file_to_node(path, &mut macros), &mut RT.write().unwrap()));
 
     match cli.mode {
         Mode::Run => {
             rt_start();
             if let Some(node) = input_node {
-                println!("result: {}", unwrap_result(run_node(node)));
+                println!("result: {}", unwrap_result(run_node(node), &mut RT.write().unwrap()));
             } else {
                 eprintln!("No files to run");
             }
@@ -211,7 +212,7 @@ fn main() {
             rt_start();
 
             if let Some(node) = input_node {
-                println!("result: {}", unwrap_result(run_node(node)));
+                println!("result: {}", unwrap_result(run_node(node), &mut RT.write().unwrap()));
             }
 
             // Gather autocomplete candidates from SYMBOLS and SPECIAL_FORMS
@@ -310,7 +311,7 @@ fn main() {
             };
             match input_node {
                 Some(node) => {
-                    unwrap_result(compile(&node, &mut codegen, cli.debug_info));
+                    unwrap_result(compile(&node, &mut codegen, cli.debug_info), &mut RT.write().unwrap());
                     match cli.output_path {
                         Some(output_path) => {
                             let mut output_file = File::create(output_path).unwrap();
@@ -337,7 +338,7 @@ fn main() {
                     runtime.set_callback(dbg_loop);
                     runtime.begin_debug();
                 }
-                unwrap_result(node.jit_compile(true));
+                unwrap_result(node.jit_compile(true), &mut RT.write().unwrap());
                 let mut runtime = RT.write().unwrap();
                 let index = runtime.pop();
                 println!("result: {}", runtime.display_node_idx(index))

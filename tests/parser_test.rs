@@ -7,11 +7,15 @@ mod tests {
     use relic::{nil, vec_to_list};
 
     #[test]
-    fn test_parse_int() {
+    fn test_parse_number() {
         let input = "42";
         let mut lexer = Lexer::new(input);
         let result = Node::parse(&mut lexer);
         assert_eq!(result, Ok(Node::Number(Number::Int(42))));
+        let input = "3.14159265358979323846";
+        let mut lexer = Lexer::new(input);
+        let result = Node::parse(&mut lexer);
+        assert_eq!(result, Ok(Node::Number(Number::Float(3.14159265358979323846))));
     }
 
     #[test]

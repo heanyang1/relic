@@ -92,19 +92,6 @@ pub fn set_log_level(level: LogLevel) {
     LOGGER.lock().unwrap().set_log_level(level);
 }
 
-pub fn unwrap_result<T, E>(result: Result<T, E>) -> T
-where
-    E: ToString,
-{
-    match result {
-        Ok(x) => x,
-        Err(msg) => {
-            log_error(msg.to_string());
-            std::process::abort()
-        }
-    }
-}
-
 #[test]
 fn test_logger() {
     let mut logger = Logger::new();
