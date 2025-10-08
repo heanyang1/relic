@@ -224,8 +224,7 @@ pub extern "C" fn rt_read() {
             }
             Err(e) => {
                 rt.error(&format!("Error in rt_read: {e}"));
-                let nil = rt.new_node_with_gc(RuntimeNode::Symbol(Symbol::Nil));
-                rt.push(nil);
+                RuntimeNode::Symbol(Symbol::Nil).load_to(&mut rt).unwrap();
                 break;
             }
         }
