@@ -1,4 +1,4 @@
-#include "../c_runtime/runtime.h"
+#include "../../c_runtime/runtime.h"
 
 #include <SDL.h>
 
@@ -20,6 +20,23 @@ void sdl_create_window_wrapper() {
 
   SDL_Window *window = SDL_CreateWindow(title, x, y, w, h, flags);
   rt_new_integer((long long)window);
+}
+
+// Wrapper for SDL_CreateRenderer
+void sdl_create_renderer_wrapper() {
+  SDL_Window *window =
+      (SDL_Window *)rt_get_integer(rt_get("#0_func_sdl_create_renderer"));
+  SDL_Renderer *renderer =
+      SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+
+  // Clear screen
+  SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+  SDL_RenderClear(renderer);
+
+  // Set line color
+  SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+
+  rt_new_integer((long long)renderer);
 }
 
 // Wrapper for SDL_GetWindowSurface
@@ -59,6 +76,26 @@ void sdl_fill_rect_xywh_wrapper() {
   Uint32 color = SDL_MapRGB(surface->format, r, g, b);
   int result = SDL_FillRect(surface, &rect, color);
   rt_new_integer(result);
+}
+
+// Wrapper for SDL_RenderDrawLine
+void sdl_draw_line_wrapper() {
+  SDL_Renderer *renderer =
+      (SDL_Renderer *)rt_get_integer(rt_get("#0_func_sdl_draw_line"));
+  int start_x = (int)rt_get_integer(rt_get("#1_func_sdl_draw_line"));
+  int start_y = (int)rt_get_integer(rt_get("#2_func_sdl_draw_line"));
+  int end_x = (int)rt_get_integer(rt_get("#3_func_sdl_draw_line"));
+  int end_y = (int)rt_get_integer(rt_get("#4_func_sdl_draw_line"));
+  int result = SDL_RenderDrawLine(renderer, start_x, start_y, end_x, end_y);
+  rt_new_integer(result);
+}
+
+// Wrapper for SDL_RenderPresent
+void sdl_render_present_wrapper() {
+  SDL_Renderer *renderer =
+      (SDL_Renderer *)rt_get_integer(rt_get("#0_func_sdl_render_present"));
+  SDL_RenderPresent(renderer);
+  rt_new_symbol("nil");
 }
 
 // Wrapper for SDL_UpdateWindowSurface
@@ -102,6 +139,14 @@ void sdl_destroy_window_wrapper() {
   SDL_Window *window =
       (SDL_Window *)rt_get_integer(rt_get("#0_func_sdl_destroy_window"));
   SDL_DestroyWindow(window);
+  rt_new_symbol("nil");
+}
+
+// Wrapper for SDL_DestroyRenderer
+void sdl_destroy_renderer_wrapper() {
+  SDL_Renderer *renderer =
+      (SDL_Renderer *)rt_get_integer(rt_get("#0_func_sdl_destroy_renderer"));
+  SDL_DestroyRenderer(renderer);
   rt_new_symbol("nil");
 }
 
@@ -160,11 +205,20 @@ int sdl2() {
                  false);
   rt_define("sdl-get-window-surface", rt_pop());
 
+  rt_new_closure("sdl_create_renderer", sdl_create_renderer_wrapper, 1, false);
+  rt_define("sdl-create-renderer", rt_pop());
+
   rt_new_closure("sdl_fill_rect", sdl_fill_rect_wrapper, 4, false);
   rt_define("sdl-fill-rect", rt_pop());
 
   rt_new_closure("sdl_fill_rect_xywh", sdl_fill_rect_xywh_wrapper, 8, false);
   rt_define("sdl-fill-rect-xywh", rt_pop());
+
+  rt_new_closure("sdl_draw_line", sdl_draw_line_wrapper, 5, false);
+  rt_define("sdl-draw-line", rt_pop());
+
+  rt_new_closure("sdl_render_present", sdl_render_present_wrapper, 1, false);
+  rt_define("sdl-render-present", rt_pop());
 
   rt_new_closure("sdl_update_window_surface", sdl_update_window_surface_wrapper,
                  1, false);
@@ -175,6 +229,10 @@ int sdl2() {
 
   rt_new_closure("sdl_poll_event", sdl_poll_event_wrapper, 0, false);
   rt_define("sdl-poll-event", rt_pop());
+
+  rt_new_closure("sdl_destroy_renderer", sdl_destroy_renderer_wrapper, 1,
+                 false);
+  rt_define("sdl-destroy-renderer", rt_pop());
 
   rt_new_closure("sdl_destroy_window", sdl_destroy_window_wrapper, 1, false);
   rt_define("sdl-destroy-window", rt_pop());

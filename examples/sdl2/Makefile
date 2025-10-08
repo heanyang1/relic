@@ -17,7 +17,10 @@ $(LIB_FOLDER)/sdl2.relic: sdl2.c
 clean:
 	rm -f $(LIB_FOLDER)/sdl2.relic
 
-run: $(LIB_FOLDER)/sdl2.relic
+demo: $(LIB_FOLDER)/sdl2.relic
 	cd ../.. && cargo run -- run -i examples/sdl2/demo.lisp
+
+turtle: $(LIB_FOLDER)/sdl2.relic
+	cd ../.. && cargo run -- run -i examples/sdl2/turtle.lisp
 
 .PHONY: all clean run
