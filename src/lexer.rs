@@ -1,6 +1,8 @@
 //! The lexer module.
 
-use crate::{error::ParseError, number::Number};
+use std::{fs::read_to_string, path::PathBuf};
+
+use crate::{error::ParseError, file_ptr::FilePointer, number::Number};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum TokenType {
@@ -22,22 +24,29 @@ pub enum TokenType {
 
 pub struct Lexer {
     raw: String,
-    cur_pos: usize,
+    cur_pos: FilePointer,
 }
 
 impl Lexer {
+    pub fn new_file(filepath: PathBuf) -> Result<Lexer, String> {
+        let file = read_to_string(&filepath).map_err(|e| e.to_string())?;
+        Ok(Lexer {
+            raw: file,
+            cur_pos: FilePointer::new(filepath.to_str().unwrap()),
+        })
+    }
     pub fn new<T>(s: T) -> Lexer
     where
         T: ToString,
     {
         Lexer {
             raw: s.to_string(),
-            cur_pos: 0,
+            cur_pos: FilePointer::new("<temp_file>"),
         }
     }
 
-    pub fn get_cur_pos(&self) -> usize {
-        self.cur_pos
+    pub fn get_cur_pos(&self) -> &FilePointer {
+        &self.cur_pos
     }
 
     fn is_whitespace(&self, x: char) -> bool {
@@ -56,7 +65,7 @@ impl Lexer {
             Ok(actual) if actual == token => Ok(()),
             Ok(actual) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Expected {token:?}, found {actual:?}",
-                self.get_cur_pos()
+                self.cur_pos
             ))),
             Err(e) => Err(e),
         }
@@ -67,7 +76,7 @@ impl Lexer {
             Ok(TokenType::Symbol(sym)) => Ok(sym),
             Ok(actual) => Err(ParseError::SyntaxError(format!(
                 "At position {}: Expected symbol, found {actual:?}",
-                self.get_cur_pos()
+                self.cur_pos
             ))),
             Err(e) => Err(e),
         }
@@ -132,23 +141,23 @@ impl Lexer {
     /// unless a comment is met (where the comment is consumed and no token
     /// will be generated).
     pub fn peek_next_token(&mut self) -> Result<(usize, TokenType), ParseError> {
-        let mut cur_pos = self.cur_pos;
+        let mut cur_idx = self.cur_pos.get_str_idx();
         // remove whitespace
-        while let Some(x) = self.raw.chars().nth(cur_pos) {
+        while let Some(x) = self.raw.chars().nth(cur_idx) {
             if self.is_whitespace(x) {
-                cur_pos += 1;
+                cur_idx += 1;
             } else {
                 break;
             }
         }
-        match self.raw.chars().nth(cur_pos) {
+        match self.raw.chars().nth(cur_idx) {
             Some(ch) => match ch {
-                '(' => Ok((cur_pos + 1, TokenType::LParem)),
-                ')' => Ok((cur_pos + 1, TokenType::RParem)),
-                '\'' => Ok((cur_pos + 1, TokenType::Quote)),
-                '.' => Ok((cur_pos + 1, TokenType::Dot)),
+                '(' => Ok((cur_idx + 1, TokenType::LParem)),
+                ')' => Ok((cur_idx + 1, TokenType::RParem)),
+                '\'' => Ok((cur_idx + 1, TokenType::Quote)),
+                '.' => Ok((cur_idx + 1, TokenType::Dot)),
                 '\"' => {
-                    let mut next_pos = cur_pos + 1;
+                    let mut next_pos = cur_idx + 1;
                     while let Some(x) = self.raw.chars().nth(next_pos) {
                         if x == '\"' {
                             break;
@@ -157,31 +166,31 @@ impl Lexer {
                     }
                     Ok((
                         next_pos + 1,
-                        TokenType::String(self.raw.as_str()[cur_pos + 1..next_pos].into()),
+                        TokenType::String(self.raw.as_str()[cur_idx + 1..next_pos].into()),
                     ))
                 }
                 // Comment starts with `;` and ends with `\n`.
                 ';' => {
-                    let mut next_pos = cur_pos + 1;
-                    while let Some(x) = self.raw.chars().nth(next_pos) {
+                    let mut next_idx = cur_idx + 1;
+                    while let Some(x) = self.raw.chars().nth(next_idx) {
                         if x == '\n' {
                             break;
                         }
-                        next_pos += 1;
+                        next_idx += 1;
                     }
-                    self.cur_pos = next_pos;
+                    self.cur_pos.consume_until(next_idx, &self.raw);
                     self.peek_next_token()
                 }
-                x if x == '-' || x.is_ascii_digit() => self.peek_number(cur_pos),
-                _ => self.peek_symbol(cur_pos),
+                x if x == '-' || x.is_ascii_digit() => self.peek_number(cur_idx),
+                _ => self.peek_symbol(cur_idx),
             },
             None => Err(ParseError::EOF), // EOF
         }
     }
 
     pub fn try_next(&mut self) -> Result<TokenType, ParseError> {
-        let (next_pos, token) = self.peek_next_token()?;
-        self.cur_pos = next_pos;
+        let (next_idx, token) = self.peek_next_token()?;
+        self.cur_pos.consume_until(next_idx, &self.raw);
         Ok(token)
     }
 }

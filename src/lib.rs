@@ -1,6 +1,7 @@
 pub mod compile;
 pub mod env;
 pub mod error;
+mod file_ptr;
 pub mod lexer;
 pub mod logger;
 pub mod node;
