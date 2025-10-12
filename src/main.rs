@@ -134,10 +134,10 @@ fn dbg_loop(runtime: &Runtime) -> DbgState {
         match rl.readline("dbg> ") {
             Ok(line) => {
                 let line = line.trim_end();
-                if !line.is_empty() {
-                    if let Err(e) = rl.add_history_entry(line) {
-                        log_error(format!("Failed to add to history: {e}"));
-                    }
+                if !line.is_empty()
+                    && let Err(e) = rl.add_history_entry(line)
+                {
+                    log_error(format!("Failed to add to history: {e}"));
                 }
 
                 let _ = rl.save_history(&history_path);
@@ -203,7 +203,10 @@ fn main() {
         Mode::Run => {
             rt_start();
             if let Some(node) = input_node {
-                println!("result: {}", unwrap_result(run_node(node), &mut RT.write().unwrap()));
+                println!(
+                    "result: {}",
+                    unwrap_result(run_node(node), &mut RT.write().unwrap())
+                );
             } else {
                 eprintln!("No files to run");
             }
@@ -212,7 +215,10 @@ fn main() {
             rt_start();
 
             if let Some(node) = input_node {
-                println!("result: {}", unwrap_result(run_node(node), &mut RT.write().unwrap()));
+                println!(
+                    "result: {}",
+                    unwrap_result(run_node(node), &mut RT.write().unwrap())
+                );
             }
 
             // Gather autocomplete candidates from SYMBOLS and SPECIAL_FORMS
@@ -311,7 +317,10 @@ fn main() {
             };
             match input_node {
                 Some(node) => {
-                    unwrap_result(compile(&node, &mut codegen, cli.debug_info), &mut RT.write().unwrap());
+                    unwrap_result(
+                        compile(&node, &mut codegen, cli.debug_info),
+                        &mut RT.write().unwrap(),
+                    );
                     match cli.output_path {
                         Some(output_path) => {
                             let mut output_file = File::create(output_path).unwrap();

@@ -16,7 +16,7 @@ pub enum CodeGenType {
     Internal(usize),
     /// The generator is generating `main` function.
     Main,
-    /// The generator is generating the top-level function that can be used.
+    /// The generator is generating the top-level function that can be used
     /// by other programs.
     Library(String),
 }
