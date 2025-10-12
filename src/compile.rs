@@ -3,7 +3,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use crate::{
-    lexer::Number,
+    number::Number,
     node::{Node, Pattern},
     symbol::{SpecialForm, Symbol},
     util::{get_n_params, inc, vectorize},

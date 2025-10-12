@@ -4,6 +4,7 @@ pub mod error;
 pub mod lexer;
 pub mod logger;
 pub mod node;
+pub mod number;
 pub mod package;
 pub mod parser;
 pub mod preprocess;
@@ -15,9 +16,9 @@ use std::sync::{LazyLock, RwLock};
 use crate::{
     env::Env,
     error::ParseError,
-    lexer::Number,
     logger::log_warning,
     node::Node,
+    number::Number,
     package::load_package,
     runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
     symbol::Symbol,

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, ffi::CString, process::Command};
 
-use relic::lexer::{Lexer, Number};
+use relic::lexer::Lexer;
+use relic::number::Number;
 use relic::logger::{LogLevel, set_log_level};
 use relic::node::Node;
 use relic::parser::Parse;

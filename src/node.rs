@@ -9,7 +9,12 @@ use std::{
 };
 
 use crate::{
-    error::ParseError, lexer::{Lexer, Number}, nil, parser::Parse, symbol::{SpecialForm, Symbol}
+    error::ParseError,
+    lexer::Lexer,
+    nil,
+    number::Number,
+    parser::Parse,
+    symbol::{SpecialForm, Symbol},
 };
 
 /// The data structure of the node in reference counting graph.

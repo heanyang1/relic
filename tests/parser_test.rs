@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use relic::lexer::{Lexer, Number};
+    use relic::lexer::Lexer;
     use relic::node::Node;
+    use relic::number::Number;
     use relic::parser::Parse;
     use relic::symbol::{SpecialForm, Symbol};
     use relic::{nil, vec_to_list};
@@ -15,7 +16,10 @@ mod tests {
         let input = "3.14159265358979323846";
         let mut lexer = Lexer::new(input);
         let result = Node::parse(&mut lexer);
-        assert_eq!(result, Ok(Node::Number(Number::Float(3.14159265358979323846))));
+        assert_eq!(
+            result,
+            Ok(Node::Number(Number::Float(3.14159265358979323846)))
+        );
     }
 
     #[test]

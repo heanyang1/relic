@@ -1,5 +1,5 @@
 use relic::lexer::Lexer;
-use relic::lexer::Number;
+use relic::number::Number;
 use relic::lexer::TokenType;
 
 #[test]

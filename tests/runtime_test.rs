@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use relic::{
-    lexer::Number,
+    number::Number,
     runtime::{LoadToRuntime, Runtime, RuntimeNode, StackMachine},
     symbol::Symbol,
 };

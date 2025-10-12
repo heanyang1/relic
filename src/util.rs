@@ -9,7 +9,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::{lexer::Number, nil, node::Node, symbol::Symbol};
+use crate::{number::Number, nil, node::Node, symbol::Symbol};
 
 pub fn no_less_than_n_params<T>(lst: &[T], n: usize) -> Result<(), String> {
     let x = lst.len();

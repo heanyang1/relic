@@ -7,9 +7,10 @@ use std::{
 use crate::{
     env::Env,
     error::{ParseError, RuntimeError},
-    lexer::{Lexer, Number, TokenType},
+    lexer::{Lexer, TokenType},
     logger::{log_debug, log_error},
     node::Node,
+    number::Number,
     symbol::Symbol,
     util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
 };
