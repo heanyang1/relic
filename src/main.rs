@@ -12,11 +12,9 @@ use relic::{
     compile::{CodeGen, compile},
     env::Env,
     error::ParseError,
-    lexer::Lexer,
+    lexer::LexerMonad,
     logger::{LogLevel, log_debug, log_error, set_log_level},
-    node::Node,
     package::file_to_node,
-    parser::Parse,
     preprocess::PreProcess,
     rt_start, run_node,
     runtime::{DbgState, Runtime, StackMachine},
@@ -264,9 +262,8 @@ fn main() {
                         }
 
                         // Try to parse the input
-                        let mut tokens = Lexer::new(&input_buffer);
-                        match Node::parse(&mut tokens) {
-                            Ok(mut node) => {
+                        match LexerMonad::new_unnamed(input_buffer.clone()).parse() {
+                            Ok(node) => {
                                 // Successful parse, execute and clear buffer
                                 match node.preprocess(&mut macros).and_then(run_node) {
                                     Ok(result) => {

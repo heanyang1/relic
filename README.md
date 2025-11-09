@@ -48,6 +48,24 @@ cd c_runtime
 ./run_tests.py
 ```
 
+## Roadmap
+
+### Compiler
+
+- [x] Runtime and JIT compiler
+- [x] Package system
+- [] Better error message
+- [] Compile to LLVM
+- [] Debug information and GDB/LLDB support
+- [] Better macros
+
+### Library
+
+- [x] SDL demo
+- [] C math library
+- [] Unix system calls
+- [] More Scheme features
+
 ## Acknowledgments
 
 - [SICP at MIT OpenCourseWare](https://ocw.mit.edu/courses/6-001-structure-and-interpretation-of-computer-programs-spring-2005/)

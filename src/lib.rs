@@ -1,7 +1,6 @@
 pub mod compile;
 pub mod env;
 pub mod error;
-mod file_ptr;
 pub mod lexer;
 pub mod logger;
 pub mod node;
@@ -15,15 +14,7 @@ mod util;
 use std::sync::{LazyLock, RwLock};
 
 use crate::{
-    env::Env,
-    error::ParseError,
-    logger::log_warning,
-    node::Node,
-    number::Number,
-    package::load_package,
-    runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
-    symbol::Symbol,
-    util::CVoidFunc,
+    env::Env, error::ParseError, lexer::LexerMonad, logger::log_warning, node::Node, number::Number, package::load_package, runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine}, symbol::Symbol, util::CVoidFunc
 };
 
 pub fn unwrap_result<T, E>(result: Result<T, E>, rt: &mut Runtime) -> T
@@ -39,7 +30,7 @@ where
     }
 }
 
-pub fn run_node(node: Node) -> Result<String, String> {
+pub fn run_node(node: LexerMonad<Node>) -> Result<String, String> {
     node.jit_compile(false)?;
     let mut runtime = RT.write().unwrap();
     let index = runtime.pop();
@@ -219,7 +210,7 @@ pub extern "C" fn rt_read() {
         let mut current = String::new();
         std::io::stdin().read_line(&mut current).unwrap();
         input.push_str(&current);
-        match input.load_to(&mut rt) {
+        match input.clone().load_to(&mut rt) {
             Ok(()) => break,
             Err(ParseError::EOF) => {
                 continue;
@@ -240,7 +231,7 @@ pub extern "C" fn rt_new_constant(expr: *const u8) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(expr as *const i8) };
     if let Ok(expr_str) = c_str.to_str() {
         rt.api_called(format!("rt_new_constant({expr_str})"));
-        unwrap_result(expr_str.load_to(&mut rt), &mut rt);
+        unwrap_result(expr_str.to_string().load_to(&mut rt), &mut rt);
     } else {
         rt.error("Error in rt_new_constant: invalid string");
     }

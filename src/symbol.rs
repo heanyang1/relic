@@ -386,10 +386,13 @@ impl Display for Symbol {
     }
 }
 
-/// The shorthand for `Node::Symbol(Symbol::Nil)`.
+/// The `Nil`` symbol.
 #[macro_export]
 macro_rules! nil {
     () => {
         Node::Symbol(Symbol::Nil)
+    };
+    ($fp:expr) => {
+        LexerMonad::from_other(nil!(), $fp)
     };
 }

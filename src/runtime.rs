@@ -1,15 +1,19 @@
 //! The runtime module.
 
 use std::{
-    cell::RefCell, collections::HashMap, fmt::Display, mem::swap, rc::Rc, result::Result, vec::Vec,
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    mem::swap,
+    result::Result,
+    vec::Vec,
 };
 
 use crate::{
     env::Env,
     error::{ParseError, RuntimeError},
-    lexer::{Lexer, TokenType},
+    lexer::LexerMonad,
     logger::{log_debug, log_error},
-    node::Node,
+    node::{Node, PrintableNode},
     number::Number,
     symbol::Symbol,
     util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
@@ -211,108 +215,137 @@ impl LoadToRuntime for Closure {
     }
 }
 
-impl LoadToRuntime for &str {
+impl LoadToRuntime for String {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
-        Lexer::new(self).load_to(runtime)
+        LexerMonad::new_unnamed(self).load_to(runtime)
     }
 }
 
-/// Pop the stack for `n` times if `stmt` returns error.
-/// It is used to remove previous objects from the stack, not the object being
-/// loaded to the stack (which will be taken care of by `load_to`).
-macro_rules! pop_on_err {
-    ($stmt:expr, $runtime:expr, $n: expr) => {
-        $stmt.map_err(|e| {
-            for _ in 0..$n {
-                $runtime.pop();
-            }
-            e
-        })?
-    };
-}
+// /// Pop the stack for `n` times if `stmt` returns error.
+// /// It is used to remove previous objects from the stack, not the object being
+// /// loaded to the stack (which will be taken care of by `load_to`).
+// macro_rules! pop_on_err {
+//     ($stmt:expr, $runtime:expr, $n: expr) => {
+//         $stmt.map_err(|e| {
+//             for _ in 0..$n {
+//                 $runtime.pop();
+//             }
+//             e
+//         })?
+//     };
+// }
 
-impl LoadToRuntime for &mut Lexer {
+impl LoadToRuntime for LexerMonad<()> {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
-        match self.try_next() {
-            Ok(TokenType::LParem) => parse_list(self, runtime),
-            Ok(TokenType::Quote) => {
-                Symbol::Nil.load_to(runtime)?;
-                pop_on_err!(self.load_to(runtime), runtime, 1);
-                runtime.new_pair();
-                pop_on_err!(
-                    Symbol::User("quote".to_string()).load_to(runtime),
-                    runtime,
-                    1
-                );
-                runtime.new_pair();
-                Ok(())
+        self.parse()?.load_to(runtime)
+    }
+}
+
+impl LoadToRuntime for &LexerMonad<Node> {
+    fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
+        match self.get() {
+            Node::Number(num) => num.clone().load_to(runtime),
+            Node::Pair(car, cdr) => {
+                cdr.borrow().load_to(runtime)?;
+                if let Err(e) = car.borrow().load_to(runtime) {
+                    runtime.pop();
+                    return Err(e);
+                } else {
+                    Ok(runtime.new_pair())
+                }
             }
-            Ok(TokenType::Number(i)) => i.load_to(runtime),
-            Ok(TokenType::String(str)) => {
-                Symbol::Nil.load_to(runtime)?;
-                pop_on_err!(Symbol::from(str).load_to(runtime), runtime, 1);
-                runtime.new_pair();
-                pop_on_err!(
-                    Symbol::User("quote".to_string()).load_to(runtime),
-                    runtime,
-                    1
-                );
-                runtime.new_pair();
-                Ok(())
+            Node::SpecialForm(form) => {
+                // Special forms are loaded as user symbol.
+                Symbol::User(form.to_string()).load_to(runtime)
             }
-            Ok(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
-            Ok(TokenType::RParem) => Err(ParseError::SyntaxError(format!(
-                "At position {}: Unexpected ')'",
-                self.get_cur_pos()
-            ))),
-            Ok(TokenType::Dot) => Err(ParseError::SyntaxError(format!(
-                "At position {}: Unexpected '.'",
-                self.get_cur_pos()
-            ))),
-            Err(e) => Err(e),
+            Node::String(s) => Symbol::User(s.to_string()).load_to(runtime),
+            Node::Symbol(s) => s.clone().load_to(runtime),
         }
     }
 }
 
-/// The same as [Node::parse_list], except that it deals with the runtime and
-/// loads everything into the stack.
-///
-/// # Errors
-///
-/// Returns [ParseError] and restores the stack to the state before the
-/// function call if an error occurs.
-fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), ParseError> {
-    macro_rules! consume {
-        ($tokens:expr, $ty:expr) => {
-            $tokens.consume($ty)
-        };
-    }
-    match tokens.peek_next_token() {
-        Ok((_, TokenType::RParem)) => {
-            // case 1
-            consume!(tokens, TokenType::RParem)?;
-            Symbol::Nil.load_to(runtime)
-        }
-        _ => {
-            tokens.load_to(runtime)?; // car
+// impl LoadToRuntime for LexerMonad<()> {
+//     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
+//         match self.try_next() {
+//             Ok(TokenType::LParem) => parse_list(self, runtime),
+//             Ok(TokenType::Quote) => {
+//                 Symbol::Nil.load_to(runtime)?;
+//                 pop_on_err!(self.load_to(runtime), runtime, 1);
+//                 runtime.new_pair();
+//                 pop_on_err!(
+//                     Symbol::User("quote".to_string()).load_to(runtime),
+//                     runtime,
+//                     1
+//                 );
+//                 runtime.new_pair();
+//                 Ok(())
+//             }
+//             Ok(TokenType::Number(i)) => i.load_to(runtime),
+//             Ok(TokenType::String(str)) => {
+//                 Symbol::Nil.load_to(runtime)?;
+//                 pop_on_err!(Symbol::from(str).load_to(runtime), runtime, 1);
+//                 runtime.new_pair();
+//                 pop_on_err!(
+//                     Symbol::User("quote".to_string()).load_to(runtime),
+//                     runtime,
+//                     1
+//                 );
+//                 runtime.new_pair();
+//                 Ok(())
+//             }
+//             Ok(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
+//             Ok(TokenType::RParem) => Err(ParseError::SyntaxError(format!(
+//                 "At position {}: Unexpected ')'",
+//                 self.get_cur_pos()
+//             ))),
+//             Ok(TokenType::Dot) => Err(ParseError::SyntaxError(format!(
+//                 "At position {}: Unexpected '.'",
+//                 self.get_cur_pos()
+//             ))),
+//             Err(e) => Err(e),
+//         }
+//     }
+// }
 
-            // cdr
-            if let Ok((_, TokenType::Dot)) = tokens.peek_next_token() {
-                // case 3
-                pop_on_err!(consume!(tokens, TokenType::Dot), runtime, 1); // pop car
-                pop_on_err!(tokens.load_to(runtime), runtime, 1);
-                pop_on_err!(consume!(tokens, TokenType::RParem), runtime, 2); // pop both
-            } else {
-                // case 2
-                pop_on_err!(parse_list(tokens, runtime), runtime, 1); // pop car
-            };
+// /// The same as [Node::parse_list], except that it deals with the runtime and
+// /// loads everything into the stack.
+// ///
+// /// # Errors
+// ///
+// /// Returns [ParseError] and restores the stack to the state before the
+// /// function call if an error occurs.
+// fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), ParseError> {
+//     macro_rules! consume {
+//         ($tokens:expr, $ty:expr) => {
+//             $tokens.consume($ty)
+//         };
+//     }
+//     match tokens.peek_next_token() {
+//         Ok((_, TokenType::RParem)) => {
+//             // case 1
+//             consume!(tokens, TokenType::RParem)?;
+//             Symbol::Nil.load_to(runtime)
+//         }
+//         _ => {
+//             tokens.load_to(runtime)?; // car
 
-            runtime.swap();
-            runtime.new_pair();
-            Ok(())
-        }
-    }
-}
+//             // cdr
+//             if let Ok((_, TokenType::Dot)) = tokens.peek_next_token() {
+//                 // case 3
+//                 pop_on_err!(consume!(tokens, TokenType::Dot), runtime, 1); // pop car
+//                 pop_on_err!(tokens.load_to(runtime), runtime, 1);
+//                 pop_on_err!(consume!(tokens, TokenType::RParem), runtime, 2); // pop both
+//             } else {
+//                 // case 2
+//                 pop_on_err!(parse_list(tokens, runtime), runtime, 1); // pop car
+//             };
+
+//             runtime.swap();
+//             runtime.new_pair();
+//             Ok(())
+//         }
+//     }
+// }
 
 impl LoadToRuntime for RuntimeNode {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
@@ -1071,53 +1104,6 @@ impl Runtime {
         self.get_node(true, index).clone()
     }
 
-    pub fn to_node(
-        &self,
-        index: usize,
-        visited: &mut HashMap<usize, Rc<RefCell<Node>>>,
-    ) -> Rc<RefCell<Node>> {
-        if visited.contains_key(&index) {
-            return visited.get(&index).unwrap().clone();
-        }
-        match self.get_node(true, index) {
-            RuntimeNode::BrokenHeart(dst) => {
-                Node::Symbol(Symbol::User(format!("<BrokenHeart {dst}>"))).into()
-            }
-            RuntimeNode::Closure(Closure { env, nargs, .. }) => Node::Symbol(Symbol::User(
-                format!("<Closure env: {env}, nargs: {nargs}>"),
-            ))
-            .into(),
-            RuntimeNode::Environment(name, map, outer) => {
-                let mut result = format!("<Env {name}: ");
-                for (k, v) in map {
-                    result += &format!("{k}={v}, ");
-                }
-                if let Some(env) = outer {
-                    result += &format!("; outer = {env}");
-                }
-                Node::Symbol(Symbol::User(format!("{result}>"))).into()
-            }
-            RuntimeNode::Number(val) => Node::Number(val.clone()).into(),
-            RuntimeNode::Pair(car, cdr) => {
-                let pair = Rc::new(RefCell::new(Node::Pair(
-                    Node::Symbol(Symbol::Nil).into(),
-                    Node::Symbol(Symbol::Nil).into(),
-                )));
-                visited.insert(index, pair.clone());
-                let car_node = self.to_node(*car, visited);
-                let cdr_node = self.to_node(*cdr, visited);
-                if let Node::Pair(car, cdr) = &mut *pair.borrow_mut() {
-                    *car = car_node;
-                    *cdr = cdr_node;
-                } else {
-                    unreachable!()
-                }
-                pair
-            }
-            RuntimeNode::Symbol(val) => Node::Symbol(val.clone()).into(),
-        }
-    }
-
     pub fn copy_node(&mut self, active: bool, src: usize, dst: usize) {
         let area = self.get_area_mut(active);
         let src_val = area.get(src).unwrap();
@@ -1162,10 +1148,44 @@ impl Runtime {
         }
     }
 
+    fn get_printable_node(
+        &self,
+        index: usize,
+        visited: &mut HashMap<usize, PrintableNode>,
+    ) -> PrintableNode {
+        if visited.contains_key(&index) {
+            return visited.get(&index).unwrap().clone();
+        }
+        let result = match self.get_node(true, index) {
+            RuntimeNode::Symbol(Symbol::Nil) => PrintableNode::Nil,
+            RuntimeNode::Symbol(sym) => sym.to_string().into(),
+            RuntimeNode::Number(num) => num.to_string().into(),
+            RuntimeNode::Pair(car, cdr) => {
+                let car = self.get_printable_node(*car, visited);
+                let cdr = self.get_printable_node(*cdr, visited);
+                PrintableNode::Pair(car.into(), cdr.into())
+            }
+            RuntimeNode::BrokenHeart(dst) => format!("<BrokenHeart {dst}>").into(),
+            RuntimeNode::Closure(Closure { env, nargs, .. }) => {
+                format!("<Closure env: {env}, nargs: {nargs}>").into()
+            }
+            RuntimeNode::Environment(name, map, outer) => {
+                let mut result = format!("<Env {name}: ");
+                for (k, v) in map {
+                    result += &format!("{k}={v}, ");
+                }
+                if let Some(env) = outer {
+                    result += &format!("; outer = {env}");
+                }
+                format!("{result}>").into()
+            }
+        };
+        visited.insert(index, result.clone());
+        result
+    }
+
     pub fn display_node_idx(&self, index: usize) -> String {
-        let mut visited = HashMap::new();
-        let node = self.to_node(index, &mut visited);
-        format!("{}", node.borrow())
+        format!("{}", self.get_printable_node(index, &mut HashMap::new()))
     }
 
     /// Create a pair using the two elements from the stack. The first element

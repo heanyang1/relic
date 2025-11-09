@@ -1,76 +1,86 @@
-use relic::lexer::Lexer;
+use relic::lexer::LexerMonad;
+use relic::lexer::Token;
 use relic::number::Number;
-use relic::lexer::TokenType;
+
+fn get_tokens(mut l: LexerMonad<()>) -> Vec<Token> {
+    let mut tokens = vec![];
+    loop {
+        match l.next_token() {
+            Ok(new_l) => {
+                tokens.push(new_l.get().clone());
+                l = new_l.get_fp(); // Update l for the next iteration
+            }
+            Err(e) => {
+                println!("{e}");
+                break;
+            }
+        }
+    }
+    tokens
+}
 
 #[test]
 fn param() {
+    let tokens = LexerMonad::new_unnamed("(())");
     assert_eq!(
-        Lexer::new("(())").collect::<Vec<TokenType>>(),
-        vec![
-            TokenType::LParem,
-            TokenType::LParem,
-            TokenType::RParem,
-            TokenType::RParem
-        ]
+        get_tokens(tokens),
+        vec![Token::LParem, Token::LParem, Token::RParem, Token::RParem]
     )
 }
 
 #[test]
 fn numeric() {
+    let tokens = LexerMonad::new_unnamed("123456 123.456 -123 -4.56");
     assert_eq!(
-        Lexer::new("123456 123.456 -123 -4.56").collect::<Vec<TokenType>>(),
+        get_tokens(tokens),
         vec![
-            TokenType::Number(Number::Int(123456)),
-            TokenType::Number(Number::Float(123.456)),
-            TokenType::Number(Number::Int(-123)),
-            TokenType::Number(Number::Float(-4.56)),
+            Token::Number(Number::Int(123456)),
+            Token::Number(Number::Float(123.456)),
+            Token::Number(Number::Int(-123)),
+            Token::Number(Number::Float(-4.56)),
         ]
     )
 }
 
 #[test]
 fn empty_input() {
-    assert_eq!(Lexer::new("").collect::<Vec<TokenType>>(), vec![]);
+    assert_eq!(get_tokens(LexerMonad::new_unnamed("")), vec![]);
 }
 
 #[test]
 fn whitespace_only() {
-    assert_eq!(Lexer::new("   \n\t  ").collect::<Vec<TokenType>>(), vec![]);
+    assert_eq!(get_tokens(LexerMonad::new_unnamed("   \n\t  ")), vec![]);
 }
 
 #[test]
 fn comment() {
     assert_eq!(
-        Lexer::new("1 ; 2 \n\t  3 ").collect::<Vec<TokenType>>(),
-        vec![
-            TokenType::Number(Number::Int(1)),
-            TokenType::Number(Number::Int(3))
-        ]
+        get_tokens(LexerMonad::new_unnamed("1 ; 2 \n\t  3 ")),
+        vec![Token::Number(Number::Int(1)), Token::Number(Number::Int(3))]
     );
 }
 
 #[test]
 fn string() {
     assert_eq!(
-        Lexer::new("\"a b c\n d\" ; \" e f\" \n\t  \"\" ").collect::<Vec<TokenType>>(),
-        vec![
-            TokenType::String("a b c\n d".into()),
-            TokenType::String("".into())
-        ]
+        get_tokens(LexerMonad::new_unnamed(
+            "\"a b c\n d\" ; \" e f\" \n\t  \"\" "
+        )),
+        vec![Token::String("a b c\n d".into()), Token::String("".into())]
     );
 }
 
 #[test]
 fn quote_token() {
     assert_eq!(
-        Lexer::new("'(1 2 3)").collect::<Vec<TokenType>>(),
+        get_tokens(LexerMonad::new_unnamed("'(1 2 3)")),
         vec![
-            TokenType::Quote,
-            TokenType::LParem,
-            TokenType::Number(Number::Int(1)),
-            TokenType::Number(Number::Int(2)),
-            TokenType::Number(Number::Int(3)),
-            TokenType::RParem
+            Token::Quote,
+            Token::LParem,
+            Token::Number(Number::Int(1)),
+            Token::Number(Number::Int(2)),
+            Token::Number(Number::Int(3)),
+            Token::RParem
         ]
     );
 }
@@ -78,13 +88,13 @@ fn quote_token() {
 #[test]
 fn keyword_def() {
     assert_eq!(
-        Lexer::new("(def foo 42)").collect::<Vec<TokenType>>(),
+        get_tokens(LexerMonad::new_unnamed("(def foo 42)")),
         vec![
-            TokenType::LParem,
-            TokenType::Symbol("def".into()),
-            TokenType::Symbol("foo".into()),
-            TokenType::Number(Number::Int(42)),
-            TokenType::RParem
+            Token::LParem,
+            Token::Symbol("def".into()),
+            Token::Symbol("foo".into()),
+            Token::Number(Number::Int(42)),
+            Token::RParem
         ]
     );
 }
@@ -92,13 +102,13 @@ fn keyword_def() {
 #[test]
 fn keyword_set() {
     assert_eq!(
-        Lexer::new("(set foo 42)").collect::<Vec<TokenType>>(),
+        get_tokens(LexerMonad::new_unnamed("(set foo 42)")),
         vec![
-            TokenType::LParem,
-            TokenType::Symbol("set".into()),
-            TokenType::Symbol("foo".into()),
-            TokenType::Number(Number::Int(42)),
-            TokenType::RParem
+            Token::LParem,
+            Token::Symbol("set".into()),
+            Token::Symbol("foo".into()),
+            Token::Number(Number::Int(42)),
+            Token::RParem
         ]
     );
 }
@@ -106,19 +116,19 @@ fn keyword_set() {
 #[test]
 fn keyword_lambda() {
     assert_eq!(
-        Lexer::new("(lambda (x) (+ x 1))").collect::<Vec<TokenType>>(),
+        get_tokens(LexerMonad::new_unnamed("(lambda (x) (+ x 1))")),
         vec![
-            TokenType::LParem,
-            TokenType::Symbol("lambda".into()),
-            TokenType::LParem,
-            TokenType::Symbol("x".into()),
-            TokenType::RParem,
-            TokenType::LParem,
-            TokenType::Symbol("+".into()),
-            TokenType::Symbol("x".into()),
-            TokenType::Number(Number::Int(1)),
-            TokenType::RParem,
-            TokenType::RParem
+            Token::LParem,
+            Token::Symbol("lambda".into()),
+            Token::LParem,
+            Token::Symbol("x".into()),
+            Token::RParem,
+            Token::LParem,
+            Token::Symbol("+".into()),
+            Token::Symbol("x".into()),
+            Token::Number(Number::Int(1)),
+            Token::RParem,
+            Token::RParem
         ]
     );
 }
@@ -126,27 +136,27 @@ fn keyword_lambda() {
 #[test]
 fn symbol_token() {
     assert_eq!(
-        Lexer::new("foo").collect::<Vec<TokenType>>(),
-        vec![TokenType::Symbol("foo".into())]
+        get_tokens(LexerMonad::new_unnamed("foo")),
+        vec![Token::Symbol("foo".into())]
     );
 }
 
 #[test]
 fn mixed_tokens() {
     assert_eq!(
-        Lexer::new("(lambda (x) (def foo x))").collect::<Vec<TokenType>>(),
+        get_tokens(LexerMonad::new_unnamed("(lambda (x) (def foo x))")),
         vec![
-            TokenType::LParem,
-            TokenType::Symbol("lambda".into()),
-            TokenType::LParem,
-            TokenType::Symbol("x".into()),
-            TokenType::RParem,
-            TokenType::LParem,
-            TokenType::Symbol("def".into()),
-            TokenType::Symbol("foo".into()),
-            TokenType::Symbol("x".into()),
-            TokenType::RParem,
-            TokenType::RParem
+            Token::LParem,
+            Token::Symbol("lambda".into()),
+            Token::LParem,
+            Token::Symbol("x".into()),
+            Token::RParem,
+            Token::LParem,
+            Token::Symbol("def".into()),
+            Token::Symbol("foo".into()),
+            Token::Symbol("x".into()),
+            Token::RParem,
+            Token::RParem
         ]
     );
 }
@@ -154,20 +164,20 @@ fn mixed_tokens() {
 #[test]
 fn symbol_with_numbers() {
     assert_eq!(
-        Lexer::new("abc123").collect::<Vec<TokenType>>(),
-        vec![TokenType::Symbol("abc123".into())]
+        get_tokens(LexerMonad::new_unnamed("abc123")),
+        vec![Token::Symbol("abc123".into())]
     );
 }
 
 #[test]
 fn multiple_whitespace() {
     assert_eq!(
-        Lexer::new("(  1   2 )").collect::<Vec<TokenType>>(),
+        get_tokens(LexerMonad::new_unnamed("(  1   2 )")),
         vec![
-            TokenType::LParem,
-            TokenType::Number(Number::Int(1)),
-            TokenType::Number(Number::Int(2)),
-            TokenType::RParem
+            Token::LParem,
+            Token::Number(Number::Int(1)),
+            Token::Number(Number::Int(2)),
+            Token::RParem
         ]
     );
 }
@@ -175,13 +185,13 @@ fn multiple_whitespace() {
 #[test]
 fn dot() {
     assert_eq!(
-        Lexer::new("(a . b)").collect::<Vec<TokenType>>(),
+        get_tokens(LexerMonad::new_unnamed("(a . b)")),
         vec![
-            TokenType::LParem,
-            TokenType::Symbol("a".into()),
-            TokenType::Dot,
-            TokenType::Symbol("b".into()),
-            TokenType::RParem
+            Token::LParem,
+            Token::Symbol("a".into()),
+            Token::Dot,
+            Token::Symbol("b".into()),
+            Token::RParem
         ]
     );
 }
@@ -189,7 +199,7 @@ fn dot() {
 #[test]
 fn unknown_characters() {
     assert_eq!(
-        Lexer::new("$").collect::<Vec<TokenType>>(),
-        vec![TokenType::Symbol("$".into())]
+        get_tokens(LexerMonad::new_unnamed("$")),
+        vec![Token::Symbol("$".into())]
     );
 }

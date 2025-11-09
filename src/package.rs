@@ -1,11 +1,11 @@
 //! Functions related to loading packages and JIT compilation
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
-    fs::read_to_string,
     path::{Path, PathBuf},
     process::Command,
-    str::FromStr,
+    rc::Rc,
 };
 
 use libloading::{Library, Symbol};
@@ -13,8 +13,11 @@ use libloading::{Library, Symbol};
 use crate::{
     RT,
     compile::{CodeGen, compile},
+    lexer::LexerMonad,
     node::Node,
+    parser::new_pair,
     preprocess::{Macro, PreProcess},
+    symbol::SpecialForm,
     util::inc,
 };
 
@@ -22,14 +25,24 @@ use crate::{
 pub fn file_to_node(
     input_path: PathBuf,
     macros: &mut HashMap<String, Macro>,
-) -> Result<Node, String> {
-    let file = read_to_string(input_path).map_err(|e| e.to_string())?;
-    let mut node = Node::from_str(&file)?;
-    node.preprocess(macros)
+) -> Result<LexerMonad<Node>, String> {
+    // Add a `begin` in the beginning
+    let nodes = LexerMonad::new(input_path)?
+        .parse_all()
+        .map_err(|e| e.to_string())?;
+    new_pair(
+        LexerMonad::from_other(
+            Node::SpecialForm(SpecialForm::Begin),
+            nodes.borrow().get_begin(),
+        )
+        .into(),
+        nodes.clone(),
+    )
+    .preprocess(macros)
 }
 
 /// Loads a package to the runtime.
-/// 
+///
 /// A package with name `name` can be either a dynamic library `name.relic` or
 /// a Lisp source file `name.lisp`.
 ///
@@ -84,7 +97,7 @@ fn call_library_fn(lib: &Library, func_name: &str) -> Result<(), String> {
 /// It has the same effect as evaluating the node at top-level.
 ///
 /// This function can not be called when holding [RT].
-impl Node {
+impl LexerMonad<Node> {
     pub fn jit_compile(&self, debug_info: bool) -> Result<(), String> {
         // make a directory for Relic runtime if it doesn't exist
         std::fs::create_dir_all("/tmp/relic").map_err(|e| e.to_string())?;

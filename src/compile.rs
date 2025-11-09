@@ -3,8 +3,10 @@
 use std::{collections::HashMap, fmt::Display};
 
 use crate::{
+    lexer::LexerMonad,
+    nil,
+    node::Node,
     number::Number,
-    node::{Node, Pattern},
     symbol::{SpecialForm, Symbol},
     util::{get_n_params, inc, vectorize},
 };
@@ -168,8 +170,12 @@ macro_rules! no_drop {
     };
 }
 
-/// Calls [Node::compile] with no optimization at the top level.
-pub fn compile(node: &Node, codegen: &mut CodeGen, dbg_info: bool) -> Result<(), String> {
+/// Calls [LexerMonad<Node>::compile] with no optimization at the top level.
+pub fn compile(
+    node: &LexerMonad<Node>,
+    codegen: &mut CodeGen,
+    dbg_info: bool,
+) -> Result<(), String> {
     node.compile(codegen, no_drop!(), dbg_info)
 }
 
@@ -184,6 +190,16 @@ trait Compile {
     /// of each evaluation to support `n` command in the debugger.
     fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo, dbg_info: bool)
     -> Result<(), String>;
+}
+
+impl LexerMonad<Node> {
+    fn is_proper_list(&self) -> bool {
+        match self.get() {
+            nil!() => true,
+            Node::Pair(_, cdr) => cdr.borrow().is_proper_list(),
+            _ => false,
+        }
+    }
 }
 
 impl Compile for Symbol {
@@ -208,14 +224,14 @@ impl Compile for Symbol {
     }
 }
 
-impl Compile for Node {
+impl Compile for LexerMonad<Node> {
     fn compile(
         &self,
         codegen: &mut CodeGen,
         ctx: ContexInfo,
         dbg_info: bool,
     ) -> Result<(), String> {
-        match self {
+        match self.get() {
             Node::String(val) => {
                 if !ctx.drop_ret {
                     codegen.append_code(&format!("rt_new_symbol(\"{val}\");"))
@@ -234,7 +250,7 @@ impl Compile for Node {
                 }
                 Ok(())
             }
-            Node::Pair(car, cdr) => match &*car.borrow() {
+            Node::Pair(car, cdr) => match &*car.borrow().get() {
                 Node::Number(num) => Err(format!("{num} can not be the head of a list")),
                 Node::SpecialForm(form) => match form {
                     // This corresponds to the apply part of the interpreter.
@@ -242,23 +258,29 @@ impl Compile for Node {
                     // special forms must be applied at compile-time.
                     SpecialForm::Lambda => {
                         if !ctx.drop_ret {
-                            let (pattern, body) = cdr.borrow().as_pair()?;
-
-                            // Use `begin` to support multiple statements.
-                            let mut body =
-                                Node::Pair(Node::SpecialForm(SpecialForm::Begin).into(), body);
-
+                            let (pattern, cddr) = cdr.borrow().as_pair()?;
+                            let mut body = cddr.borrow().as_pair()?.0.borrow().clone();
+                            let x = format!("{body}");
+                            let y = format!("{}", pattern.borrow());
                             let lambda_id = inc();
 
                             // Replace operands with its index.
-                            let pattern = Pattern::try_from(pattern.clone())?;
-                            let mut pvec = vec![];
-                            pattern.vectorize(&mut pvec);
+                            let pvec = vectorize(pattern.clone())?;
                             for (i, sym) in pvec.iter().enumerate() {
-                                body.replace(
-                                    &Node::Symbol(Symbol::User(sym.clone())),
-                                    &Node::Symbol(Symbol::User(format!("#{i}_func_{lambda_id}"))),
-                                );
+                                let sym_monad = sym.borrow();
+                                if let Node::Symbol(Symbol::User(_)) = sym_monad.get() {
+                                    body = body.replace_node(
+                                        sym_monad.get(),
+                                        &Node::Symbol(Symbol::User(format!(
+                                            "#{i}_func_{lambda_id}"
+                                        ))),
+                                    );
+                                } else {
+                                    return Err(self.error(format!(
+                                        "arg {} is not a user symbol",
+                                        sym.borrow()
+                                    )));
+                                }
                             }
 
                             // Generate function body.
@@ -278,7 +300,7 @@ impl Compile for Node {
                             codegen.append_code(&format!(
                                 "rt_new_closure(\"{lambda_id}\", func_{lambda_id}, {}, {});",
                                 pvec.len(),
-                                !pattern.is_proper_list()
+                                !pattern.borrow().is_proper_list()
                             ));
                         }
                         Ok(())
@@ -319,7 +341,7 @@ fflush(NULL);"#,
                         if ctx.drop_env {
                             // The environment will be dropped anyway.
                             Ok(())
-                        } else if let Node::Symbol(Symbol::User(name)) = &*params[0].borrow() {
+                        } else if let Node::Symbol(Symbol::User(name)) = params[0].borrow().get() {
                             // `define` uses both of the environment and the return value.
                             // So do `set*`.
                             params[1].borrow().compile(codegen, no_drop!(), dbg_info)?;
@@ -428,9 +450,11 @@ fflush(NULL);"#,
                         call_procedure(ctx, codegen);
                         Ok(())
                     }
-                    _ => unreachable!(),
+                    form => unreachable!("{form}"),
                 },
                 _ => {
+                    let x = format!("{}", car.borrow());
+                    let y = format!("{}", cdr.borrow());
                     let operands = vectorize(cdr.clone())?;
 
                     // operands

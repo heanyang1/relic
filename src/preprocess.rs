@@ -1,62 +1,49 @@
 //! The preprocessor module.
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use crate::{
+    lexer::LexerMonad,
     nil,
-    node::{Node, Pattern, pattern_matching},
+    node::{Node, NodeRef},
+    parser::vec_to_list,
     symbol::{SpecialForm, Symbol},
     util::vectorize,
 };
-
-/// Pre-process the AST before evaluating or compiling.
-///
-/// Things done in this stage:
-/// 1. Expanding macros
-/// 2. Syntax desugaring (e.g. `cond` -> `if`)
-pub trait PreProcess {
-    fn preprocess(&mut self, macros: &mut HashMap<String, Macro>) -> Result<Self, String>
-    where
-        Self: Sized;
-}
-
-/// Generate a list node from a vector of nodes.
-#[macro_export]
-macro_rules! vec_to_list {
-    ($e:expr) => {
-        Node::Pair($e, nil!().into())
-    };
-    ($e:expr, $($rest:tt)*) => {
-        Node::Pair($e, vec_to_list!($($rest)*).into())
-    };
-}
 
 /// Process a list of expression to evaluate, such as the function body of
 /// `lambda`.
 macro_rules! body {
     ($node: expr) => {
-        Node::Pair(Node::SpecialForm(SpecialForm::Begin).into(), $node)
+        LexerMonad::from_other(
+            Node::Pair(
+                LexerMonad::from_other(
+                    Node::SpecialForm(SpecialForm::Begin),
+                    $node.borrow().get_begin(),
+                )
+                .into(),
+                $node,
+            ),
+            $node.borrow().get_begin(),
+        )
     };
 }
 
 /// Macros.
-/// The fields are:
-/// - Pattern
-/// - Template (represented by a node)
 pub struct Macro {
-    pattern: Pattern,
-    template: Rc<RefCell<Node>>,
+    pattern: NodeRef,
+    template: NodeRef,
 }
 
 impl Macro {
-    fn new(pattern: Pattern, template: Rc<RefCell<Node>>) -> Self {
+    fn new(pattern: NodeRef, template: NodeRef) -> Self {
         Macro { pattern, template }
     }
 }
 
-impl Node {
-    pub fn deep_copy(&self) -> Node {
-        match self {
+impl LexerMonad<Node> {
+    pub fn deep_copy(&self) -> Self {
+        let node = match self.get() {
             Node::Number(num) => Node::Number(num.clone()),
             Node::Symbol(sym) => Node::Symbol(sym.clone()),
             Node::String(val) => Node::String(val.clone()),
@@ -65,49 +52,108 @@ impl Node {
                 cdr.borrow().deep_copy().into(),
             ),
             Node::SpecialForm(form) => Node::SpecialForm(form.clone()),
-        }
+        };
+        Self::from_other(node, self.get_fp())
     }
 
-    pub fn replace(&mut self, src: &Node, dst: &Node) {
-        if *self == *src {
-            *self = dst.clone();
-            return;
-        }
-        match self {
-            Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) | Node::String(_) => {
-                // do nothing
+    pub fn replace_node(&self, src: &Node, dst: &Node) -> Self {
+        self.bind(move |node| {
+            if *node == *src {
+                return dst.clone();
             }
-            Node::Pair(car, cdr) => {
-                car.borrow_mut().replace(src, dst);
-                cdr.borrow_mut().replace(src, dst);
+            match node {
+                Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) | Node::String(_) => {
+                    node.clone()
+                }
+                Node::Pair(car, cdr) => Node::Pair(
+                    car.clone().borrow().replace_node(src, dst).into(),
+                    cdr.clone().borrow().replace_node(src, dst).into(),
+                ),
             }
+        })
+    }
+
+    fn is_pattern(&self) -> bool {
+        match self.get() {
+            Node::Pair(car, cdr) => match (car.borrow().get(), cdr.borrow().get()) {
+                (Node::Symbol(Symbol::User(_)), Node::Symbol(Symbol::User(_))) => true,
+                (Node::Symbol(Symbol::User(_)), _) => cdr.borrow().is_pattern(),
+                _ => false,
+            },
+            _ => false,
         }
     }
 }
 
-impl PreProcess for Node {
-    fn preprocess(&mut self, macros: &mut HashMap<String, Macro>) -> Result<Node, String> {
-        match self {
+pub fn pattern_matching(
+    pattern: NodeRef,
+    actual: NodeRef,
+    bindings: &mut HashMap<String, NodeRef>,
+) -> Result<(), String> {
+    match (pattern.borrow().get(), actual.borrow().get()) {
+        (nil!(), nil!()) => Ok(()),
+        (Node::Symbol(sym), _) => {
+            bindings.insert(sym.to_string(), actual.clone());
+            Ok(())
+        }
+        (Node::Pair(car, cdr), Node::Pair(car_actual, cdr_actual)) => {
+            if let Node::Symbol(car) = car.borrow().get() {
+                bindings.insert(car.to_string(), car_actual.clone());
+                pattern_matching(cdr.clone(), cdr_actual.clone(), bindings)
+            } else {
+                Err(pattern
+                    .borrow()
+                    .error(format!("Pattern {} is not a symbol", car.borrow())))
+            }
+        }
+        _ => Err(format!(
+            "Parameter mismatch: expect {}, got {:?}",
+            pattern.borrow(),
+            actual
+        )),
+    }
+}
+
+pub trait PreProcess
+where
+    Self: Sized,
+{
+    fn preprocess(&self, macros: &mut HashMap<String, Macro>) -> Result<Self, String>;
+}
+
+impl PreProcess for LexerMonad<Node> {
+    /// Pre-process the AST before evaluating or compiling.
+    ///
+    /// Things done in this stage:
+    /// 1. Expanding macros
+    /// 2. Syntax desugaring (e.g. `cond` -> `if`)
+    fn preprocess(&self, macros: &mut HashMap<String, Macro>) -> Result<Self, String> {
+        match self.get() {
             Node::Number(_) | Node::Symbol(_) | Node::SpecialForm(_) | Node::String(_) => {
-                Ok(self.deep_copy())
+                Ok::<LexerMonad<Node>, String>(self.clone())
             }
             Node::Pair(car, cdr) => {
                 let car = car.borrow_mut().preprocess(macros)?;
                 // skip preprocessing if this expression is quoted
-                if car == Node::SpecialForm(SpecialForm::Quote) {
-                    return Ok(Node::Pair(car.into(), cdr.clone()));
+                if *car.get() == Node::SpecialForm(SpecialForm::Quote) {
+                    return Ok(LexerMonad::from_other(
+                        Node::Pair(car.into(), cdr.clone()),
+                        self.get_fp(),
+                    ));
                 }
                 let cdr = cdr.borrow_mut().preprocess(macros)?;
-                match &car {
+                let ret = match car.get() {
                     Node::Symbol(Symbol::User(sym)) if macros.contains_key(sym) => {
                         let Macro { pattern, template } = macros.get(sym).unwrap();
                         let mut bindings = HashMap::new();
-                        let params = vectorize(cdr.into())?;
-                        pattern_matching(pattern, &params, &mut bindings)?;
+                        pattern_matching(pattern.clone(), cdr.into(), &mut bindings)?;
 
-                        let mut body = template.borrow().deep_copy();
+                        let body = template.borrow().deep_copy();
                         for (name, param) in bindings {
-                            body.replace(&Node::Symbol(Symbol::User(name)), &param.borrow());
+                            body.replace_node(
+                                &Node::Symbol(Symbol::User(name)),
+                                param.borrow().get(),
+                            );
                         }
                         Ok(body)
                     }
@@ -115,28 +161,68 @@ impl PreProcess for Node {
                         let (sym, body) = cdr.as_pair()?;
                         let (car, cdr) = sym.borrow().as_pair()?;
                         let name = car.borrow().as_user_symbol()?;
-                        macros.insert(
-                            name,
-                            Macro::new(Pattern::try_from(cdr.clone())?, body!(body).into()),
-                        );
-                        Ok(nil!())
+                        if cdr.borrow().is_pattern() {
+                            macros.insert(name, Macro::new(cdr, body!(body.clone()).into()));
+                            Ok(LexerMonad::from_other(nil!(), self.get_fp()))
+                        } else {
+                            Err(self.error(format!("{} is not a valid pattern", cdr.borrow())))
+                        }
+                    }
+                    Node::SpecialForm(SpecialForm::Lambda) => {
+                        // `(lambda (...) ...)` -> `(lambda (...) (begin ...))`
+                        let (pattern, body) = cdr.as_pair()?;
+                        Ok(vec_to_list(&[
+                            car.into(),
+                            pattern,
+                            LexerMonad::from_other(
+                                Node::Pair(
+                                    LexerMonad::from_other(
+                                        Node::SpecialForm(SpecialForm::Begin),
+                                        body.borrow().get_fp(),
+                                    )
+                                    .into(),
+                                    body.clone(),
+                                ),
+                                body.borrow().get_fp(),
+                            )
+                            .into(),
+                        ]))
                     }
                     Node::SpecialForm(SpecialForm::Define) => {
-                        // `(define (f ...) ...)` -> `(define f (lambda (...) ...))`
+                        // `(define (f ...) ...)` -> `(define f (lambda (...) (begin ...)))`
                         let (pattern, body) = cdr.as_pair()?;
-                        if let Node::Pair(func, params) = &*pattern.borrow() {
-                            let ret = vec_to_list!(
+                        if let Node::Pair(func, params) = pattern.borrow().get() {
+                            let ret = vec_to_list(&[
                                 car.into(),
                                 func.clone(),
-                                Node::Pair(
-                                    Node::SpecialForm(SpecialForm::Lambda).into(),
-                                    Node::Pair(params.clone(), body).into()
-                                )
-                                .into()
-                            );
+                                vec_to_list(&[
+                                    LexerMonad::from_other(
+                                        Node::SpecialForm(SpecialForm::Lambda),
+                                        self.get_fp(),
+                                    )
+                                    .into(),
+                                    params.clone(),
+                                    LexerMonad::from_other(
+                                        Node::Pair(
+                                            LexerMonad::from_other(
+                                                Node::SpecialForm(SpecialForm::Begin),
+                                                self.get_fp(),
+                                            )
+                                            .into(),
+                                            body.clone(),
+                                        ),
+                                        self.get_fp(),
+                                    )
+                                    .into(),
+                                ])
+                                .into(),
+                            ]);
                             Ok(ret)
                         } else {
-                            Ok(Node::Pair(car.into(), cdr.into()))
+                            Ok(LexerMonad::from_other(
+                                Node::Pair(car.into(), cdr.into()),
+                                self.get_fp(),
+                            ))
                         }
                     }
                     Node::SpecialForm(SpecialForm::Cond) => {
@@ -147,16 +233,30 @@ impl PreProcess for Node {
                         //            (begin v2)
                         //            ...))
                         let params = vectorize(cdr.into())?;
-                        let mut body = nil!();
+                        let mut body = nil!(self.get_end());
                         for node in params.iter().rev() {
                             let (cond, value) = node.borrow().as_pair()?;
-                            body = vec_to_list!(
-                                Node::SpecialForm(SpecialForm::If).into(),
-                                cond,
-                                Node::Pair(Node::SpecialForm(SpecialForm::Begin).into(), value)
-                                    .into(),
-                                body.into()
-                            );
+                            body = vec_to_list(&[
+                                LexerMonad::from_other(
+                                    Node::SpecialForm(SpecialForm::If),
+                                    cond.borrow().get_begin(),
+                                )
+                                .into(),
+                                cond.clone(),
+                                LexerMonad::from_other(
+                                    Node::Pair(
+                                        LexerMonad::from_other(
+                                            Node::SpecialForm(SpecialForm::Begin),
+                                            value.clone().borrow().get_begin(),
+                                        )
+                                        .into(),
+                                        value.clone(),
+                                    ),
+                                    value.borrow().get_fp(),
+                                )
+                                .into(),
+                                body.into(),
+                            ]);
                         }
                         Ok(body)
                     }
@@ -172,32 +272,51 @@ impl PreProcess for Node {
                         //                  xn)...))
                         let params = vectorize(cdr.into())?;
                         if params.is_empty() {
-                            Ok(Node::Symbol(Symbol::T))
+                            Ok(LexerMonad::from_other(
+                                Node::Symbol(Symbol::T),
+                                self.get_fp(),
+                            ))
                         } else {
                             let value = params.last().unwrap();
-                            let mut body = vec_to_list!(
-                                Node::SpecialForm(SpecialForm::If).into(),
-                                vec_to_list!(
-                                    Node::Symbol(Symbol::Eq).into(),
-                                    value.clone(),
-                                    nil!().into()
+                            let mut body = vec_to_list(&[
+                                LexerMonad::from_other(
+                                    Node::SpecialForm(SpecialForm::If),
+                                    value.borrow().get_fp(),
                                 )
                                 .into(),
-                                value.clone(),
-                                value.clone()
-                            );
-                            for value in params.iter().rev().skip(1) {
-                                body = vec_to_list!(
-                                    Node::SpecialForm(SpecialForm::If).into(),
-                                    vec_to_list!(
-                                        Node::Symbol(Symbol::Eq).into(),
-                                        value.clone(),
-                                        nil!().into()
+                                vec_to_list(&[
+                                    LexerMonad::from_other(
+                                        Node::Symbol(Symbol::Eq),
+                                        value.borrow().get_fp(),
                                     )
                                     .into(),
                                     value.clone(),
-                                    body.into()
-                                );
+                                    nil!(value.borrow().get_fp()).into(),
+                                ])
+                                .into(),
+                                value.clone(),
+                                value.clone(),
+                            ]);
+                            for value in params.iter().rev().skip(1) {
+                                body = vec_to_list(&[
+                                    LexerMonad::from_other(
+                                        Node::SpecialForm(SpecialForm::If),
+                                        value.borrow().get_fp(),
+                                    )
+                                    .into(),
+                                    vec_to_list(&[
+                                        LexerMonad::from_other(
+                                            Node::Symbol(Symbol::Eq),
+                                            value.borrow().get_fp(),
+                                        )
+                                        .into(),
+                                        value.clone(),
+                                        nil!(value.borrow().get_fp()).into(),
+                                    ])
+                                    .into(),
+                                    value.clone(),
+                                    body.into(),
+                                ]);
                             }
                             Ok(body)
                         }
@@ -213,43 +332,86 @@ impl PreProcess for Node {
                         //                  xn
                         //                  nil)...))
                         let params = vectorize(cdr.into())?;
-                        let mut body = nil!();
+                        let mut body = nil!(self.get_end());
                         for param in params.iter().rev() {
-                            body = vec_to_list!(
-                                Node::SpecialForm(SpecialForm::If).into(),
+                            body = vec_to_list(&[
+                                LexerMonad::from_other(
+                                    Node::SpecialForm(SpecialForm::If),
+                                    param.borrow().get_fp(),
+                                )
+                                .into(),
                                 param.clone(),
                                 param.clone(),
-                                body.into()
-                            )
+                                body.into(),
+                            ])
                         }
                         Ok(body)
                     }
                     Node::SpecialForm(SpecialForm::Let) => {
                         // (let ((x1 e11) (x2 e12) ...) e21 e22 ...)
-                        // -> ((lambda (x1 x2 ...) e21 e22 ...) e11 e12 ...)
+                        // -> ((lambda (x1 x2 ...) (begin e21 e22 ...)) e11 e12 ...)
                         let (bindings, body) = cdr.as_pair()?;
-                        let mut keys = vec![];
-                        let mut values = vec![];
-                        for binding in vectorize(bindings)? {
+                        let mut keys_node = nil!(self.get_end());
+                        let mut values_node = nil!(self.get_end());
+                        for binding in vectorize(bindings)?.iter().rev() {
                             let (k, v) = binding.borrow().as_pair()?;
-                            keys.push(k);
                             let (car, _) = v.borrow().as_pair()?;
-                            values.push(car);
+                            keys_node = LexerMonad::from_other(
+                                Node::Pair(k.clone(), keys_node.into()),
+                                k.borrow().get_fp(),
+                            );
+                            values_node = LexerMonad::from_other(
+                                Node::Pair(car.clone(), values_node.into()),
+                                car.borrow().get_fp(),
+                            );
                         }
-                        let keys_node = Node::from_iter(keys);
-                        let values_node = Node::from_iter(values);
-                        let ret = Node::Pair(
+                        // (begin e21 e22 ...)
+                        let body = LexerMonad::from_other(
                             Node::Pair(
-                                Node::SpecialForm(SpecialForm::Lambda).into(),
-                                Node::Pair(keys_node.into(), body).into(),
-                            )
-                            .into(),
-                            values_node.into(),
+                                LexerMonad::from_other(
+                                    Node::SpecialForm(SpecialForm::Begin),
+                                    self.get_fp(),
+                                )
+                                .into(),
+                                body,
+                            ),
+                            self.get_fp(),
                         );
-                        Ok(ret)
+                        // (lambda (x1 x2 ...) <body>)
+                        let lambda = LexerMonad::from_other(
+                            Node::Pair(
+                                LexerMonad::from_other(
+                                    Node::SpecialForm(SpecialForm::Lambda),
+                                    self.get_fp(),
+                                )
+                                .into(),
+                                LexerMonad::from_other(
+                                    Node::Pair(
+                                        keys_node.into(),
+                                        LexerMonad::from_other(
+                                            Node::Pair(body.into(), nil!(self.get_fp()).into()),
+                                            self.get_fp(),
+                                        )
+                                        .into(),
+                                    ),
+                                    self.get_fp(),
+                                )
+                                .into(),
+                            ),
+                            self.get_fp(),
+                        );
+                        // (<lambda> e11 e12 ...)
+                        Ok(LexerMonad::from_other(
+                            Node::Pair(lambda.into(), values_node.into()),
+                            self.get_fp(),
+                        ))
                     }
-                    _ => Ok(Node::Pair(car.into(), cdr.into())),
-                }
+                    _ => Ok(LexerMonad::from_other(
+                        Node::Pair(car.into(), cdr.into()),
+                        self.get_fp(),
+                    )),
+                }?;
+                Ok(ret)
             }
         }
     }

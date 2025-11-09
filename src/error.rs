@@ -5,7 +5,11 @@ impl From<String> for RuntimeError {
     }
 }
 
-use std::{backtrace::Backtrace, error::Error, fmt::{Display, Formatter}};
+use std::{
+    backtrace::Backtrace,
+    error::Error,
+    fmt::{Display, Formatter},
+};
 
 #[derive(Debug)]
 pub struct RuntimeError {
@@ -48,4 +52,32 @@ impl Display for ParseError {
         )
     }
 }
+impl From<String> for ParseError {
+    fn from(value: String) -> Self {
+        ParseError::SyntaxError(value)
+    }
+}
+impl Into<String> for ParseError {
+    fn into(self) -> String {
+        format!("{self}")
+    }
+}
+
 impl Error for ParseError {}
+
+/// Map error in result if the error type is convertible.
+pub trait MapErr<T, Ein, Eout>
+where
+    Ein: Into<Eout>,
+{
+    fn map_err_simple(self) -> Result<T, Eout>;
+}
+
+impl<T, Ein, Eout> MapErr<T, Ein, Eout> for Result<T, Ein>
+where
+    Ein: Into<Eout>,
+{
+    fn map_err_simple(self) -> Result<T, Eout> {
+        self.map_err(|e| e.into())
+    }
+}
