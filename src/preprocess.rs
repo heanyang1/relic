@@ -1,14 +1,14 @@
 //! The preprocessor module.
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     lexer::LexerMonad,
     nil,
-    node::{Node, NodeRef},
+    node::{Node, NodeRef, PrintableNode},
     parser::vec_to_list,
     symbol::{SpecialForm, Symbol},
-    util::vectorize,
+    util::Vectorize,
 };
 
 /// Process a list of expression to evaluate, such as the function body of
@@ -141,7 +141,7 @@ impl PreProcess for LexerMonad<Node> {
                         self.get_fp(),
                     ));
                 }
-                let cdr = cdr.borrow_mut().preprocess(macros)?;
+                let cdr = cdr.borrow().preprocess(macros)?;
                 let ret = match car.get() {
                     Node::Symbol(Symbol::User(sym)) if macros.contains_key(sym) => {
                         let Macro { pattern, template } = macros.get(sym).unwrap();
@@ -232,7 +232,7 @@ impl PreProcess for LexerMonad<Node> {
                         //        (if c2
                         //            (begin v2)
                         //            ...))
-                        let params = vectorize(cdr.into())?;
+                        let params = Rc::new(RefCell::new(cdr)).vectorize_proper_list()?;
                         let mut body = nil!(self.get_end());
                         for node in params.iter().rev() {
                             let (cond, value) = node.borrow().as_pair()?;
@@ -270,7 +270,7 @@ impl PreProcess for LexerMonad<Node> {
                         //              (if (eq? xn nil)
                         //                  xn
                         //                  xn)...))
-                        let params = vectorize(cdr.into())?;
+                        let params = Rc::new(RefCell::new(cdr)).vectorize_proper_list()?;
                         if params.is_empty() {
                             Ok(LexerMonad::from_other(
                                 Node::Symbol(Symbol::T),
@@ -331,7 +331,7 @@ impl PreProcess for LexerMonad<Node> {
                         //              (if xn
                         //                  xn
                         //                  nil)...))
-                        let params = vectorize(cdr.into())?;
+                        let params = Rc::new(RefCell::new(cdr)).vectorize_proper_list()?;
                         let mut body = nil!(self.get_end());
                         for param in params.iter().rev() {
                             body = vec_to_list(&[
@@ -353,7 +353,7 @@ impl PreProcess for LexerMonad<Node> {
                         let (bindings, body) = cdr.as_pair()?;
                         let mut keys_node = nil!(self.get_end());
                         let mut values_node = nil!(self.get_end());
-                        for binding in vectorize(bindings)?.iter().rev() {
+                        for binding in bindings.vectorize_proper_list()?.iter().rev() {
                             let (k, v) = binding.borrow().as_pair()?;
                             let (car, _) = v.borrow().as_pair()?;
                             keys_node = LexerMonad::from_other(

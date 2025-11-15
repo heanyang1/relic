@@ -251,17 +251,24 @@ fn test_cond_eval() {
 }
 
 #[test]
+#[serial]
 fn test_simple_expr_eval() {
+    rt_start();
     assert_eval_text!("(+ (* 1 2 3) (/ 3 4))", "6.75");
+    let mut runtime = RT.write().unwrap();
+    runtime.clear();
 }
 
 #[test]
+#[serial]
 fn test_simple_lambda_eval() {
+    rt_start();
     assert_eval_text!("((lambda (x y z) (- x ((lambda (x) z) y))) 3 4 1)", "2");
+    let mut runtime = RT.write().unwrap();
+    runtime.clear();
 }
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn test_lambda_pattern_matching_eval() {
     rt_start();
@@ -626,7 +633,6 @@ fn test_lambda_scope() {
 }
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn test_lambda_pattern_matching() {
     rt_start();
@@ -804,7 +810,6 @@ fn test_fact() {
 }
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn test_list_package() {
     rt_start();
@@ -826,7 +831,6 @@ fn test_list_package() {
 }
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn test_fib() {
     rt_start();
@@ -1061,7 +1065,6 @@ fn run_c_test() {
 pub static COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn debug_test() {
     fn test_callback(rt: &Runtime) -> DbgState {

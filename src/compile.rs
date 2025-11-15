@@ -8,7 +8,7 @@ use crate::{
     node::Node,
     number::Number,
     symbol::{SpecialForm, Symbol},
-    util::{get_n_params, inc, vectorize},
+    util::{Vectorize, get_n_params, inc},
 };
 
 /// Type of code generators.
@@ -265,7 +265,7 @@ impl Compile for LexerMonad<Node> {
                             let lambda_id = inc();
 
                             // Replace operands with its index.
-                            let pvec = vectorize(pattern.clone())?;
+                            let (is_proper_list, pvec) = pattern.clone().vectorize();
                             for (i, sym) in pvec.iter().enumerate() {
                                 let sym_monad = sym.borrow();
                                 if let Node::Symbol(Symbol::User(_)) = sym_monad.get() {
@@ -300,7 +300,7 @@ impl Compile for LexerMonad<Node> {
                             codegen.append_code(&format!(
                                 "rt_new_closure(\"{lambda_id}\", func_{lambda_id}, {}, {});",
                                 pvec.len(),
-                                !pattern.borrow().is_proper_list()
+                                !is_proper_list
                             ));
                         }
                         Ok(())
@@ -408,7 +408,7 @@ fflush(NULL);"#,
                         Ok(())
                     }
                     SpecialForm::Begin => {
-                        let operands = vectorize(cdr.clone())?;
+                        let (is_proper_list, operands) = cdr.clone().vectorize();
                         if !operands.is_empty() {
                             for (i, operand) in operands.iter().enumerate() {
                                 let is_last = i == operands.len() - 1;
@@ -453,9 +453,7 @@ fflush(NULL);"#,
                     form => unreachable!("{form}"),
                 },
                 _ => {
-                    let x = format!("{}", car.borrow());
-                    let y = format!("{}", cdr.borrow());
-                    let operands = vectorize(cdr.clone())?;
+                    let operands = cdr.clone().vectorize_proper_list()?;
 
                     // operands
                     for operand in operands.iter().rev() {

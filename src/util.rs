@@ -1,9 +1,11 @@
 //! Utility functions.
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     ffi::c_void,
     fmt::Display,
+    rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -31,7 +33,7 @@ pub fn exactly_n_params<T>(lst: &[T], n: usize) -> Result<(), String> {
 }
 
 pub fn get_n_params(lst: NodeRef, n: usize) -> Result<Vec<NodeRef>, String> {
-    let result = vectorize(lst)?;
+    let result = lst.vectorize_proper_list()?;
     exactly_n_params(&result, n)?;
     Ok(result)
 }
@@ -79,30 +81,60 @@ where
     })
 }
 
-pub fn vectorize(lst: NodeRef) -> Result<Vec<NodeRef>, String> {
-    let mut cur = lst;
-    let mut result = Vec::new();
-    loop {
-        let next = {
-            let node = cur.borrow();
-            match node.get() {
-                Node::Pair(car, cdr) => {
-                    result.push(car.clone());
-                    Some(cdr.clone())
+pub trait Vectorize
+where
+    Self: Sized,
+{
+    type ErrorType;
+    /// Parse a node as a vector of nodes:
+    /// - If it the node is a proper list, return (true, nodes),
+    /// - If it the node is a improper list, return (false, nodes).
+    fn vectorize(self) -> (bool, Vec<Self>);
+    /// A wrapper for the [Vectorize::vectorize] function.
+    fn vectorize_proper_list(self) -> Result<Vec<Self>, Self::ErrorType>;
+}
+
+impl Vectorize for NodeRef {
+    type ErrorType = String;
+    fn vectorize(self) -> (bool, Vec<Self>) {
+        let mut cur = self.clone();
+        let mut result = Vec::new();
+        enum State {
+            Continue(NodeRef),
+            ProperList,
+            ImproperList(NodeRef),
+        }
+        loop {
+            let next = {
+                match cur.borrow().get() {
+                    Node::Pair(car, cdr) => {
+                        result.push(car.clone());
+                        State::Continue(cdr.clone())
+                    }
+                    nil!() => State::ProperList,
+                    _ => State::ImproperList(cur.clone()),
                 }
-                _ => None,
+            };
+            match next {
+                State::Continue(next_cur) => cur = next_cur,
+                State::ProperList => return (true, result),
+                State::ImproperList(last) => {
+                    result.push(last);
+                    return (false, result);
+                }
             }
-        };
-        if let Some(next_cur) = next {
-            cur = next_cur;
-        } else {
-            break;
         }
     }
-    if *cur.as_ref().borrow().get() != nil!() {
-        return Err("Not a proper list".to_string());
+    fn vectorize_proper_list(self) -> Result<Vec<Self>, Self::ErrorType> {
+        let (is_proper_list, value) = self.clone().vectorize();
+        if !is_proper_list {
+            Err(self
+                .borrow()
+                .error(format!("{} is not a proper list", self.borrow())))
+        } else {
+            Ok(value)
+        }
     }
-    Ok(result)
 }
 
 pub type CVoidFunc = extern "C" fn() -> c_void;

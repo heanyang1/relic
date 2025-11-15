@@ -161,7 +161,7 @@ impl LexerMonad<()> {
         }
         let mut cur_node = Rc::new(RefCell::new(nil!(nodes.last().unwrap().get_end())));
         for node in nodes.iter().rev() {
-            cur_node = new_pair(cur_node, Rc::new(RefCell::new(node.clone()))).into();
+            cur_node = new_pair(Rc::new(RefCell::new(node.clone())), cur_node).into();
         }
         Ok(cur_node)
     }
@@ -173,10 +173,10 @@ macro_rules! test_new {
         LexerMonad::test_new(
             $item,
             $input.to_string(),
-            0,
+            1,
             $cb,
             $cb,
-            0,
+            1,
             $cb + $len,
             $cb + $len,
         )
@@ -357,10 +357,10 @@ fn test_comment() {
         LexerMonad::test_new(
             Node::Symbol(Symbol::Nil),
             input.to_string(),
-            0,
             1,
             1,
             1,
+            2,
             0,
             4
         )

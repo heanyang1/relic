@@ -272,7 +272,7 @@ impl FilePointer {
     {
         FilePointer {
             filename: filename.to_string(),
-            line_number: 0,
+            line_number: 1,
             column_number: 0,
             str_idx: 0,
             after_newline: false,
