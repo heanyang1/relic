@@ -4,7 +4,6 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     lexer::LexerMonad,
-    nil,
     node::Node,
     number::Number,
     symbol::{SpecialForm, Symbol},
@@ -192,16 +191,6 @@ trait Compile {
     -> Result<(), String>;
 }
 
-impl LexerMonad<Node> {
-    fn is_proper_list(&self) -> bool {
-        match self.get() {
-            nil!() => true,
-            Node::Pair(_, cdr) => cdr.borrow().is_proper_list(),
-            _ => false,
-        }
-    }
-}
-
 impl Compile for Symbol {
     fn compile(
         &self,
@@ -260,8 +249,6 @@ impl Compile for LexerMonad<Node> {
                         if !ctx.drop_ret {
                             let (pattern, cddr) = cdr.borrow().as_pair()?;
                             let mut body = cddr.borrow().as_pair()?.0.borrow().clone();
-                            let x = format!("{body}");
-                            let y = format!("{}", pattern.borrow());
                             let lambda_id = inc();
 
                             // Replace operands with its index.
@@ -408,7 +395,7 @@ fflush(NULL);"#,
                         Ok(())
                     }
                     SpecialForm::Begin => {
-                        let (is_proper_list, operands) = cdr.clone().vectorize();
+                        let (_, operands) = cdr.clone().vectorize();
                         if !operands.is_empty() {
                             for (i, operand) in operands.iter().enumerate() {
                                 let is_last = i == operands.len() - 1;

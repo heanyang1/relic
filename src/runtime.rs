@@ -1,7 +1,7 @@
 //! The runtime module.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Display,
     mem::swap,
     result::Result,

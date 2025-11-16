@@ -556,7 +556,6 @@ fn test_define() {
 }
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn test_define_syntax_rule() {
     rt_start();
@@ -975,7 +974,6 @@ fn test_reverse_list() {
 }
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn test_delay() {
     rt_start();
@@ -1092,7 +1090,6 @@ fn debug_test() {
 }
 
 #[test]
-#[ignore = "todo"]
 fn test_run_monoidal() {
     let cmd = Command::new(env!("CARGO_BIN_EXE_relic"))
         .args(["run", "-i", "examples/monoidal.lisp"])
@@ -1103,13 +1100,13 @@ fn test_run_monoidal() {
     assert!(out.status.success());
     assert_eq!(
         String::from_utf8(out.stdout).unwrap(),
-        r#"(nil 2)
+        r#"(() 2)
 (t -2)
 (5)
 (-5)
 (6)
 (2 -13)
-(-1 7)result: nil
+(-1 7)result: ()
 "#
     );
 }
@@ -1158,7 +1155,6 @@ nil"#,
 }
 
 #[test]
-#[ignore = "todo"]
 fn test_repl() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_relic"))
         .args(["repl"])
@@ -1190,8 +1186,8 @@ fn test_repl() {
 = 123
 = 14
 hello
-= nil
-= nil
+= ()
+= ()
 = 42
 CTRL-D
 "#

@@ -1,11 +1,9 @@
 //! Utility functions.
 
 use std::{
-    cell::RefCell,
     collections::HashMap,
     ffi::c_void,
     fmt::Display,
-    rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 

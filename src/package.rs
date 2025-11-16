@@ -1,11 +1,9 @@
 //! Functions related to loading packages and JIT compilation
 
 use std::{
-    cell::RefCell,
     collections::HashMap,
     path::{Path, PathBuf},
     process::Command,
-    rc::Rc,
 };
 
 use libloading::{Library, Symbol};

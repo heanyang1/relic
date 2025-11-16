@@ -5,7 +5,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use crate::{
     lexer::LexerMonad,
     nil,
-    node::{Node, NodeRef, PrintableNode},
+    node::{Node, NodeRef},
     parser::vec_to_list,
     symbol::{SpecialForm, Symbol},
     util::Vectorize,
@@ -42,20 +42,6 @@ impl Macro {
 }
 
 impl LexerMonad<Node> {
-    pub fn deep_copy(&self) -> Self {
-        let node = match self.get() {
-            Node::Number(num) => Node::Number(num.clone()),
-            Node::Symbol(sym) => Node::Symbol(sym.clone()),
-            Node::String(val) => Node::String(val.clone()),
-            Node::Pair(car, cdr) => Node::Pair(
-                car.borrow().deep_copy().into(),
-                cdr.borrow().deep_copy().into(),
-            ),
-            Node::SpecialForm(form) => Node::SpecialForm(form.clone()),
-        };
-        Self::from_other(node, self.get_fp())
-    }
-
     pub fn replace_node(&self, src: &Node, dst: &Node) -> Self {
         self.bind(move |node| {
             if *node == *src {
@@ -77,6 +63,7 @@ impl LexerMonad<Node> {
         match self.get() {
             Node::Pair(car, cdr) => match (car.borrow().get(), cdr.borrow().get()) {
                 (Node::Symbol(Symbol::User(_)), Node::Symbol(Symbol::User(_))) => true,
+                (Node::Symbol(Symbol::User(_)), nil!()) => true,
                 (Node::Symbol(Symbol::User(_)), _) => cdr.borrow().is_pattern(),
                 _ => false,
             },
@@ -148,9 +135,9 @@ impl PreProcess for LexerMonad<Node> {
                         let mut bindings = HashMap::new();
                         pattern_matching(pattern.clone(), cdr.into(), &mut bindings)?;
 
-                        let body = template.borrow().deep_copy();
+                        let mut body = template.borrow().clone();
                         for (name, param) in bindings {
-                            body.replace_node(
+                            body = body.replace_node(
                                 &Node::Symbol(Symbol::User(name)),
                                 param.borrow().get(),
                             );
