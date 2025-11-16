@@ -28,10 +28,7 @@ pub fn new_pair(car: NodeRef, cdr: NodeRef) -> LexerMonad<Node> {
 pub fn vec_to_list(vec: &[NodeRef]) -> LexerMonad<Node> {
     match vec {
         [] => unreachable!(),
-        [e] => LexerMonad::from_other(
-            Node::Pair(e.clone(), nil!(e.borrow().get_end()).into()),
-            e.borrow().get_fp(),
-        ),
+        [e] => new_pair(e.clone(), nil!(e.borrow().get_end()).into()),
         [e, rest @ ..] => new_pair(e.clone(), vec_to_list(rest).into()),
     }
 }
@@ -54,7 +51,7 @@ impl LexerMonad<()> {
         match begin.get() {
             Token::RParem => {
                 // case 1
-                Ok::<LexerMonad<Node>, ParseError>(nil!(self.get_end().consume(Token::RParem)?))
+                Ok::<LexerMonad<Node>, ParseError>(nil!(self.consume(Token::RParem)?.get_end()))
             }
             _ => {
                 let car = self.get_fp().parse()?;
@@ -247,7 +244,7 @@ fn test_parse_sexp() {
                 test_number!(Number::Int(1), input, 3, 1),
                 test_pair!(
                     test_number!(Number::Int(2), input, 5, 1),
-                    test_symbol!(Symbol::Nil, input, 6, 1),
+                    test_symbol!(Symbol::Nil, input, 7, 0),
                     input,
                     5,
                     2
@@ -276,7 +273,7 @@ fn test_nested_expressions() {
                     test_number!(Number::Int(2), input, 6, 1),
                     test_pair!(
                         test_number!(Number::Int(3), input, 8, 1),
-                        test_symbol!(Symbol::Nil, input, 9, 1),
+                        test_symbol!(Symbol::Nil, input, 10, 0),
                         input,
                         8,
                         2
@@ -296,7 +293,7 @@ fn test_nested_expressions() {
                         test_number!(Number::Int(5), input, 14, 1),
                         test_pair!(
                             test_number!(Number::Int(1), input, 16, 1),
-                            test_symbol!(Symbol::Nil, input, 17, 1),
+                            test_symbol!(Symbol::Nil, input, 18, 0),
                             input,
                             16,
                             2
@@ -309,7 +306,7 @@ fn test_nested_expressions() {
                     12,
                     6
                 ),
-                test_symbol!(Symbol::Nil, input, 18, 1),
+                test_symbol!(Symbol::Nil, input, 19, 0),
                 input,
                 12,
                 7
@@ -345,7 +342,7 @@ fn test_empty_sexp() {
     let input = "()";
     assert_eq!(
         LexerMonad::new_unnamed(input).parse().unwrap(),
-        test_symbol!(Symbol::Nil, input, 1, 1)
+        test_symbol!(Symbol::Nil, input, 2, 0)
     );
 }
 
@@ -357,9 +354,9 @@ fn test_comment() {
         LexerMonad::test_new(
             Node::Symbol(Symbol::Nil),
             input.to_string(),
-            1,
-            1,
-            1,
+            2,
+            0,
+            4,
             2,
             0,
             4
@@ -371,60 +368,64 @@ fn test_comment() {
 fn test_quote() {
     let input = "'(() '())";
     // (quote (() (quote ())))
-    // assert_eq!(
-    //     LexerMonad::new_unnamed(input).parse().unwrap(),
-    //     test_pair!(
-    //         test_new!(Node::SpecialForm(SpecialForm::Quote), input, 0, 1),
-    //         test_pair!(
-    //             test_pair!(
-    //                 test_symbol!(Symbol::Nil, input, 2, 2),
-    //                 test_symbol!(Symbol::Nil, input, 4, 2),
-    //                 input,
-    //                 2,
-    //                 4
-    //             ),
-    //             test_symbol!(Symbol::Nil, input, 6, 2),
-    //             input,
-    //             2,
-    //             6
-    //         ),
-    //         input,
-    //         0,
-    //         8
-    //     )
-    // );
-    // let mut lexer = Lexer::new(input);
-    // let result = Node::parse(&mut lexer);
-
-    // let ret = vec_to_list(
-    //     Node::SpecialForm(SpecialForm::Quote).into(),
-    //     vec_to_list(
-    //         nil!().into(),
-    //         vec_to_list(Node::SpecialForm(SpecialForm::Quote).into(), nil!().into()).into()
-    //     )
-    //     .into()
-    // );
-    // assert_eq!(result, Ok(ret));
+    assert_eq!(
+        LexerMonad::new_unnamed(input).parse().unwrap(),
+        test_pair!(
+            test_new!(Node::SpecialForm(SpecialForm::Quote), input, 0, 1),
+            test_pair!(
+                test_pair!(
+                    test_symbol!(Symbol::Nil, input, 4, 0),
+                    test_pair!(
+                        test_pair!(
+                            test_new!(Node::SpecialForm(SpecialForm::Quote), input, 5, 1),
+                            test_pair!(
+                                test_symbol!(Symbol::Nil, input, 8, 0),
+                                test_symbol!(Symbol::Nil, input, 8, 0),
+                                input,
+                                8,
+                                0
+                            ),
+                            input,
+                            5,
+                            3
+                        ),
+                        test_symbol!(Symbol::Nil, input, 9, 0),
+                        input,
+                        5,
+                        4
+                    ),
+                    input,
+                    4,
+                    5
+                ),
+                test_symbol!(Symbol::Nil, input, 9, 0),
+                input,
+                4,
+                5
+            ),
+            input,
+            0,
+            9
+        )
+    );
 }
 
-// #[test]
-// fn test_invalid_statement() {
-//     // "x)" is valid for one statement (which will be parsed as a symbol "x"),
-//     // but it is not a valid program
-//     let inputs = [
-//         "(",
-//         ")",
-//         "(def x",
-//         "(((()(())())",
-//         "(1 2 .)",
-//         "(. 1)",
-//         "(1 . 2 3)",
-//         ".",
-//     ];
+#[test]
+fn test_invalid_statement() {
+    // "x)" is valid for one statement (which will be parsed as a symbol "x"),
+    // but it is not a valid program
+    let inputs = [
+        "(",
+        ")",
+        "(def x",
+        "(((()(())())",
+        "(1 2 .)",
+        "(. 1)",
+        "(1 . 2 3)",
+        ".",
+    ];
 
-//     for input in &inputs {
-//         let mut lexer = Lexer::new(input);
-//         let result = Node::parse(&mut lexer);
-//         assert!(result.is_err());
-//     }
-// }
+    for input in &inputs {
+        assert!(LexerMonad::new_unnamed(input).parse().is_err());
+    }
+}
