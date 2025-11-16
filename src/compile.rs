@@ -239,7 +239,7 @@ impl Compile for LexerMonad<Node> {
                 }
                 Ok(())
             }
-            Node::Pair(car, cdr) => match &*car.borrow().get() {
+            Node::Pair(car, cdr) => match car.borrow().get() {
                 Node::Number(num) => Err(format!("{num} can not be the head of a list")),
                 Node::SpecialForm(form) => match form {
                     // This corresponds to the apply part of the interpreter.

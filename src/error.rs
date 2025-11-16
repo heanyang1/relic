@@ -57,9 +57,9 @@ impl From<String> for ParseError {
         ParseError::SyntaxError(value)
     }
 }
-impl Into<String> for ParseError {
-    fn into(self) -> String {
-        format!("{self}")
+impl From<ParseError> for String {
+    fn from(val: ParseError) -> Self {
+        format!("{val}")
     }
 }
 

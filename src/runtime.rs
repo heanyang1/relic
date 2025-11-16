@@ -243,9 +243,10 @@ impl LoadToRuntime for &LexerMonad<Node> {
                 cdr.borrow().load_to(runtime)?;
                 if let Err(e) = car.borrow().load_to(runtime) {
                     runtime.pop();
-                    return Err(e);
+                    Err(e)
                 } else {
-                    Ok(runtime.new_pair())
+                    runtime.new_pair();
+                    Ok(())
                 }
             }
             Node::SpecialForm(form) => {

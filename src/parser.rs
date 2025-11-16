@@ -211,7 +211,7 @@ fn test_parse_number() {
     let input = "3.14159265358979323846";
     assert_eq!(
         LexerMonad::new_unnamed(input).parse().unwrap(),
-        test_number!(Number::Float(3.14159265358979323846), input, 0, 22)
+        test_number!(Number::Float(3.141_592_653_589_793), input, 0, 22)
     );
 }
 

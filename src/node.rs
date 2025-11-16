@@ -46,13 +46,13 @@ impl PrintableNode {
             Self::Nil => write!(f, "()"),
             Self::String(value) => write!(f, "{value}"),
             Self::Pair(car, cdr) => {
-                let cdr_ptr = Rc::<PrintableNode>::as_ptr(cdr) as *const PrintableNode;
+                let cdr_ptr = Rc::<PrintableNode>::as_ptr(cdr);
                 if let Some(prev_id) = visited.get(&cdr_ptr) {
                     return write!(f, "#{prev_id}#");
                 }
                 visited.insert(cdr_ptr, id);
 
-                let car_ptr = Rc::<PrintableNode>::as_ptr(car) as *const PrintableNode;
+                let car_ptr = Rc::<PrintableNode>::as_ptr(car);
                 if let Some(prev_id) = visited.get(&car_ptr) {
                     write!(f, "(#{prev_id}#")?;
                 } else {
@@ -68,7 +68,7 @@ impl PrintableNode {
                         match (*current).clone() {
                             PrintableNode::Pair(next_car, next_cdr) => {
                                 let cdr_ptr =
-                                    Rc::<PrintableNode>::as_ptr(&next_cdr) as *const PrintableNode;
+                                    Rc::<PrintableNode>::as_ptr(&next_cdr);
 
                                 if let Some(prev_id) = visited.get(&cdr_ptr) {
                                     write!(f, " . #{prev_id}#",)?;
@@ -79,7 +79,7 @@ impl PrintableNode {
                                 visited.insert(cdr_ptr, next_id);
 
                                 let car_ptr =
-                                    Rc::<PrintableNode>::as_ptr(&next_car) as *const PrintableNode;
+                                    Rc::<PrintableNode>::as_ptr(&next_car);
                                 if let Some(prev_id) = visited.get(&car_ptr) {
                                     write!(f, " #{prev_id}#",)?;
                                 } else {
@@ -91,7 +91,7 @@ impl PrintableNode {
                             }
                             PrintableNode::Nil => None,
                             PrintableNode::String(_) => {
-                                write!(f, " . {}", current)?;
+                                write!(f, " . {current}")?;
                                 None
                             }
                         }
@@ -149,14 +149,14 @@ impl LexerMonad<Node> {
     pub fn as_user_symbol(&self) -> Result<String, String> {
         match self.get() {
             Node::Symbol(Symbol::User(name)) => Ok(name.clone()),
-            _ => Err(self.error(format!("{} is not a user-defined symbol", self))),
+            _ => Err(self.error(format!("{self} is not a user-defined symbol"))),
         }
     }
 
     pub fn as_pair(&self) -> Result<(NodeRef, NodeRef), String> {
         match self.get() {
             Node::Pair(car, cdr) => Ok((car.clone(), cdr.clone())),
-            _ => Err(self.error(format!("{} is not a pair", self))),
+            _ => Err(self.error(format!("{self} is not a pair"))),
         }
     }
 }

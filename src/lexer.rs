@@ -260,8 +260,7 @@ impl Ord for FilePointer {
 
 impl PartialOrd for FilePointer {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        assert_eq!(self.filename, other.filename);
-        self.str_idx.partial_cmp(&other.str_idx)
+        Some(self.cmp(other))
     }
 }
 
