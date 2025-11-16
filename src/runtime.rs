@@ -1,12 +1,6 @@
 //! The runtime module.
 
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    mem::swap,
-    result::Result,
-    vec::Vec,
-};
+use std::{collections::HashMap, fmt::Display, mem::swap, result::Result, vec::Vec};
 
 use crate::{
     env::Env,
@@ -1151,18 +1145,20 @@ impl Runtime {
     fn get_printable_node(
         &self,
         index: usize,
+        list_index: usize,
         visited: &mut HashMap<usize, PrintableNode>,
     ) -> PrintableNode {
         if visited.contains_key(&index) {
             return visited.get(&index).unwrap().clone();
         }
+        visited.insert(index, PrintableNode::String(format!("#{list_index}#")));
         let result = match self.get_node(true, index) {
             RuntimeNode::Symbol(Symbol::Nil) => PrintableNode::Nil,
             RuntimeNode::Symbol(sym) => sym.to_string().into(),
             RuntimeNode::Number(num) => num.to_string().into(),
             RuntimeNode::Pair(car, cdr) => {
-                let car = self.get_printable_node(*car, visited);
-                let cdr = self.get_printable_node(*cdr, visited);
+                let car = self.get_printable_node(*car, list_index + 1, visited);
+                let cdr = self.get_printable_node(*cdr, list_index + 1, visited);
                 PrintableNode::Pair(car.into(), cdr.into())
             }
             RuntimeNode::BrokenHeart(dst) => format!("<BrokenHeart {dst}>").into(),
@@ -1185,7 +1181,7 @@ impl Runtime {
     }
 
     pub fn display_node_idx(&self, index: usize) -> String {
-        format!("{}", self.get_printable_node(index, &mut HashMap::new()))
+        format!("{}", self.get_printable_node(index, 0, &mut HashMap::new()))
     }
 
     /// Create a pair using the two elements from the stack. The first element

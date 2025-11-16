@@ -92,43 +92,33 @@ fn parse_test() {
     })
 }
 
-// TODO: finish test case
-// #[test]
-// fn cycle_test() {
-//     with_different_gc_size(1, 20, |runtime| {
-//         let mut list_str = "(".to_string();
-//         let mut loop_str = "(".to_string();
-//         let length = 50;
-//         for i in 0..length {
-//             list_str += &format!("{i} ");
-//             loop_str += &format!("{i} ");
-//         }
-//         list_str += ")";
-//         loop_str += ". #0#)";
-//         list_str.load_to(runtime).unwrap();
+#[test]
+fn cycle_test() {
+    with_different_gc_size(1, 20, |runtime| {
+        let mut list_str = "(".to_string();
+        let mut loop_str = "(".to_string();
+        let length = 50;
+        for i in 0..length {
+            list_str += &format!("{i} ");
+            loop_str += &format!("{i} ");
+        }
+        list_str += ")";
+        loop_str += ". #0#)";
+        list_str.load_to(runtime).unwrap();
 
-//         let first = runtime.pop();
-//         runtime.add_root("first".to_string(), first);
-//         runtime.push(first);
+        let first = runtime.pop();
+        runtime.add_root("first".to_string(), first);
+        runtime.push(first);
 
-//         for _ in 0..length - 1 {
-//             let cur = runtime.pop();
-//             let (_, cdr) = runtime.get_pair(cur).unwrap();
-//             runtime.push(cdr);
-//         }
+        for _ in 0..length - 1 {
+            let cur = runtime.pop();
+            let (_, cdr) = runtime.get_pair(cur).unwrap();
+            runtime.push(cdr);
+        }
 
-//         let last = runtime.pop();
-//         let first = runtime.get_root("first");
-//         runtime.set_cdr(true, last, first).unwrap();
-//         runtime.remove_root("first");
-
-//         // let node = runtime.to_node(first, &mut HashMap::new());
-//         // assert_eq!(loop_str, format!("{}", node.borrow()));
-
-//         // node.load_to(runtime).unwrap();
-//         // runtime.gc();
-
-//         // let node = runtime.pop();
-//         // assert_eq!(loop_str, format!("{}", runtime.display_node_idx(node)));
-//     })
-// }
+        let last = runtime.pop();
+        let first = runtime.get_root("first");
+        runtime.set_cdr(true, last, first).unwrap();
+        runtime.remove_root("first");
+    })
+}

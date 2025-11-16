@@ -131,7 +131,6 @@ macro_rules! assert_eval_text {
 }
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn test_cycle_eval() {
     rt_start();
@@ -998,7 +997,6 @@ fn test_delay() {
 }
 
 #[test]
-#[ignore = "todo"]
 #[serial]
 fn test_cycle() {
     rt_start();
@@ -1112,7 +1110,6 @@ fn test_run_monoidal() {
 }
 
 #[test]
-#[ignore = "todo"]
 fn test_run_repl() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_relic"))
         .args(["run", "-i", "examples/interpreter.lisp"])
@@ -1146,10 +1143,10 @@ nil"#,
     assert!(out.status.success());
     assert_eq!(
         String::from_utf8(out.stdout).unwrap(),
-        r#"> = nil
-> = nil
+        r#"> = ()
+> = ()
 > = (1 1 2 3 5 8 13 21 34 55)
-> result: nil
+> result: ()
 "#
     );
 }
