@@ -1,4 +1,63 @@
 //! The compiler module.
+//!
+//! This module provides compilation of AST nodes into C code. The compiler transforms
+//! Lisp expressions into C code that uses the Relic runtime C API.
+//!
+//! ## Compilation Pipeline
+//!
+//! 1. **AST to C**: The [`Compile`] trait transforms [`Node`] objects into C code
+//! 2. **C to Shared Library**: The C code is compiled using GCC/Clang into a `.so`/`.dylib`
+//! 3. **Dynamic Loading**: The shared library is loaded via [`libloading`](crate::package)
+//!
+//! ## Code Generation
+//!
+//! The [`CodeGen`] struct manages code generation with three modes:
+//! - [`CodeGenType::Main`]: Generates a `main()` function for standalone programs
+//! - [`CodeGenType::Library`]: Generates a named function for packages
+//! - [`CodeGenType::Internal`]: Generates internal functions for closures
+//!
+//! Each closure compiles to a separate C function. The main/library function calls these
+//! closure functions as needed.
+//!
+//! ## Runtime API Generation
+//!
+//! The compiler generates calls to the Relic C runtime API:
+//! - `rt_new_integer(n)`, `rt_new_float(n)`: Create numbers
+//! - `rt_new_symbol("name")`: Create symbols
+//! - `rt_push(idx)`, `rt_pop()`: Stack operations
+//! - `rt_define("name", value)`: Define variables
+//! - `rt_get("name")`: Get variable values
+//! - `rt_new_closure(id, func, nargs, variadic)`: Create closures
+//! - `rt_apply()`: Apply operators
+//!
+//! ## Special Forms
+//!
+//! Special forms are handled specially during compilation:
+//! - [`SpecialForm::Lambda`]: Creates closure functions
+//! - [`SpecialForm::Define`]: Defines variables
+//! - [`SpecialForm::Set`], [`SpecialForm::SetCar`], [`SpecialForm::SetCdr`]: Assignment
+//! - [`SpecialForm::If`]: Conditional compilation
+//! - [`SpecialForm::Begin`]: Sequence compilation
+//! - [`SpecialForm::Quote`]: Constant generation
+//! - [`SpecialForm::Import`]: Package import
+//!
+//! ## Optimization: ContexInfo
+//!
+//! The [`ContexInfo`] struct controls code generation optimization:
+//! - `drop_env`: If true, skip environment preservation when no side effects
+//! - `drop_ret`: If true, skip return value when caller doesn't need it
+//!
+//! Lambda bodies use `drop_env=true` for tail-call optimization since the
+//! environment is a copy that won't be used after return.
+//!
+//! ## Procedure Calls
+//!
+//! The [`call_procedure`] function generates code to call procedures:
+//! 1. Check if operator is a built-in symbol (use `rt_apply()`)
+//! 2. Otherwise, treat as closure:
+//!    - If `drop_env`: Simple tail-call (no environment preservation)
+//!    - Otherwise: Full call with environment save/restore
+//!
 
 use std::{collections::HashMap, fmt::Display};
 
@@ -7,7 +66,7 @@ use crate::{
     node::Node,
     number::Number,
     symbol::{SpecialForm, Symbol},
-    util::{Vectorize, get_n_params, inc},
+    util::{get_n_params, inc, Vectorize},
 };
 
 /// Type of code generators.
@@ -41,6 +100,7 @@ pub struct CodeGen {
 }
 
 impl CodeGen {
+    /// Creates a new CodeGen for a main function.
     pub fn new_main() -> Self {
         CodeGen {
             ty: CodeGenType::Main,
@@ -55,6 +115,11 @@ impl CodeGen {
             body: String::new(),
         }
     }
+    /// Creates a new CodeGen for a library/package function.
+    ///
+    /// # Parameters
+    ///
+    /// * `name` - The name of the package
     pub fn new_library(name: String) -> Self {
         CodeGen {
             ty: CodeGenType::Library(name),
@@ -63,10 +128,14 @@ impl CodeGen {
         }
     }
 
+    /// Appends C code to the function body.
     fn append_code(&mut self, code: &str) {
         self.body += code;
     }
     /// Merge the generator of a function created by this generator's function.
+    ///
+    /// This is used when compiling lambda expressions - the lambda's body
+    /// becomes a separate internal function that is merged into the parent.
     fn merge(&mut self, func: Self) {
         if let CodeGenType::Internal(id) = func.ty {
             self.closures.extend(func.closures);
@@ -188,7 +257,7 @@ trait Compile {
     /// If `dbg_info` is true, a special statement will be inserted at the end
     /// of each evaluation to support `n` command in the debugger.
     fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo, dbg_info: bool)
-    -> Result<(), String>;
+        -> Result<(), String>;
 }
 
 impl Compile for Symbol {

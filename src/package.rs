@@ -1,4 +1,65 @@
-//! Functions related to loading packages and JIT compilation
+//! Functions related to loading packages and JIT compilation.
+//!
+//! This module provides functionality for:
+//! 1. Loading packages (both compiled `.relic` and source `.lisp` files)
+//! 2. JIT compilation from Lisp source to compiled shared library
+//!
+//! ## Package Loading
+//!
+//! Packages can be loaded from two sources:
+//!
+//! ### Binary Packages (.relic)
+//!
+//! Pre-compiled shared libraries (`.relic` files) in the `lib/` directory.
+//! These are loaded using `libloading` and their initialization function is called.
+//!
+//! ### Source Packages (.lisp)
+//!
+//! Lisp source files (`.lisp`) in the `lib/` directory. These are JIT compiled
+//! to C, then to a shared library, and loaded.
+//!
+//! ## Package Resolution Order
+//!
+//! When `(import name)` is called:
+//! 1. Check if `lib/{name}.relic` exists -> load as binary
+//! 2. Check if `lib/{name}.lisp` exists -> JIT compile and load
+//! 3. Error if neither exists
+//!
+//! Once loaded, packages are cached in the runtime's package map. Subsequent
+//! `(import name)` calls skip re-loading if the package is already cached.
+//!
+//! ## JIT Compilation
+//!
+//! The [`Node::jit_compile`] function performs JIT compilation:
+//!
+//! 1. **Create temp directory**: `/tmp/relic/` for intermediate files
+//! 2. **Node to C**: Use [`CodeGen`] to generate C source code
+//! 3. **C to SO**: Compile C with GCC/Clang to shared library
+//! 4. **Load**: Use `libloading` to dynamically load the library
+//! 5. **Initialize**: Call the package's initialization function
+//!
+//! ### GCC Command Flags
+//!
+//! - `-Ic_runtime`: Include path for runtime headers
+//! - `-shared`: Create shared library
+//! - `-fPIC`: Position-independent code
+//! - `-O3`: High optimization
+//! - `-g`: Debug symbols
+//! - `-Wl,-undefined,dynamic_lookup` (macOS): Allow undefined symbols
+//!
+//! ## Binary Package Structure
+//!
+//! A binary package must export a function named after the package that:
+//! 1. Creates closures with `rt_new_closure()`
+//! 2. Defines them in the environment with `rt_define()`
+//!
+//! See [the wiki](https://github.com/heanyang1/relic/wiki/Create-and-Use-Relic-Packages)
+//! for detailed instructions on creating packages from C or Lisp code.
+//!
+//! ## Thread Safety
+//!
+//! Package loading must not be called while holding the runtime lock (`RT`).
+//! The functions in this module release the lock before loading.
 
 use std::{
     collections::HashMap,
@@ -9,14 +70,14 @@ use std::{
 use libloading::{Library, Symbol};
 
 use crate::{
-    RT,
-    compile::{CodeGen, compile},
+    compile::{compile, CodeGen},
     lexer::LexerMonad,
     node::Node,
     parser::new_pair,
     preprocess::{Macro, PreProcess},
     symbol::SpecialForm,
     util::inc,
+    RT,
 };
 
 /// Reads text from a file, parses and preprocesses it, then returns a node.

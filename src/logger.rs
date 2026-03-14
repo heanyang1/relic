@@ -1,15 +1,39 @@
 //! The logger module.
+//!
+//! Provides simple logging functionality with configurable log levels.
+//! Messages are colored based on severity and can be filtered.
+//!
+//! ## Usage
+//!
+//! Set the `LOG_LEVEL` environment variable to control logging:
+//! - `DEBUG`: Show all messages
+//! - `WARNING`: Show warnings and errors (default)
+//! - `ERROR`: Show only errors
+//!
+//! ## Functions
+//!
+//! - [`log_debug`]: Log a debug message
+//! - [`log_warning`]: Log a warning message
+//! - [`log_error`]: Log an error message
+//! - [`set_log_level`]: Change the log level programmatically
 
 use std::{
-    str::FromStr, sync::{LazyLock, Mutex}
+    str::FromStr,
+    sync::{LazyLock, Mutex},
 };
 
 use colored::Colorize;
 
+/// Log level for filtering messages.
+///
+/// Levels are ordered: Debug < Warning < Error
 #[derive(PartialEq, PartialOrd)]
 pub enum LogLevel {
+    /// Debug messages (most verbose)
     Debug = 0,
+    /// Warning messages
     Warning = 1,
+    /// Error messages (least verbose)
     Error = 2,
 }
 
@@ -25,7 +49,9 @@ impl FromStr for LogLevel {
     }
 }
 
+/// The logger that writes colored messages to stdout.
 pub struct Logger {
+    /// The current minimum log level.
     level: LogLevel,
 }
 
@@ -68,26 +94,39 @@ impl Logger {
     }
 }
 
+/// Global logger instance.
 pub static LOGGER: LazyLock<Mutex<Logger>> = LazyLock::new(|| Mutex::new(Logger::new()));
 
+/// Logs a debug message.
+///
+/// # Parameters
+///
+/// * `msg` - The message to log (anything that implements ToString)
 pub fn log_debug<T>(msg: T)
 where
     T: ToString,
 {
     LOGGER.lock().unwrap().debug(msg.to_string());
 }
+/// Logs a warning message.
 pub fn log_warning<T>(msg: T)
 where
     T: ToString,
 {
     LOGGER.lock().unwrap().warning(msg.to_string());
 }
+/// Logs an error message.
 pub fn log_error<T>(msg: T)
 where
     T: ToString,
 {
     LOGGER.lock().unwrap().error(msg.to_string());
 }
+/// Sets the global log level.
+///
+/// # Parameters
+///
+/// * `level` - The new log level
 pub fn set_log_level(level: LogLevel) {
     LOGGER.lock().unwrap().set_log_level(level);
 }

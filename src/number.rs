@@ -1,6 +1,9 @@
 //! Number representation.
 
-use std::{fmt::Display, ops::{Add, Div, Mul, Sub}};
+use std::{
+    fmt::Display,
+    ops::{Add, Div, Mul, Sub},
+};
 
 /// Numbers in Relic is an `i64` or an `f64`. Integer numbers automatically
 /// cast to floating-point number when needed.

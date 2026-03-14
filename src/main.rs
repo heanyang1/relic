@@ -1,3 +1,20 @@
+//! Relic - A minimal Lisp compiler and interpreter.
+//!
+//! This binary provides:
+//! - REPL mode for interactive evaluation
+//! - Run mode for executing files
+//! - Compile mode for generating C code
+//! - Debug mode for debugging Lisp programs
+//!
+//! ## Usage
+//!
+//! ```bash
+//! relic run -i program.lisp    # Run a Lisp program
+//! relic compile -i program.lisp -o program.c  # Compile to C
+//! relic repl                   # Start REPL
+//! relic debug -i program.lisp  # Debug mode
+//! ```
+
 use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, sync::Arc};
 
 use rustyline::Context;
@@ -23,6 +40,9 @@ use relic::{
 
 use clap::{Parser, ValueEnum};
 
+/// Autocomplete provider for the REPL.
+///
+/// Provides tab completion for Lisp symbols and special forms.
 pub struct RelicCompleter {
     pub candidates: Arc<Vec<String>>,
 }
@@ -77,6 +97,7 @@ impl Completer for RelicCompleter {
     }
 }
 
+/// Program execution modes.
 #[derive(Debug, Clone, ValueEnum)]
 enum Mode {
     /// Runs a REPL. If there is an input file, interprets it and modifies
@@ -91,6 +112,7 @@ enum Mode {
     Debug,
 }
 
+/// Command-line arguments for Relic.
 #[derive(Parser)]
 struct Cli {
     /// Program mode.
@@ -120,6 +142,21 @@ struct Cli {
     debug_info: bool,
 }
 
+/// Debugger command loop.
+///
+/// Reads debugger commands and returns the appropriate debug state.
+///
+/// # Parameters
+///
+/// * `runtime` - The runtime to inspect
+///
+/// # Commands
+///
+/// * `s` / `step`: Step to next expression
+/// * `n` / `next`: Step to next line
+/// * `c` / `continue`: Continue execution
+/// * `p <var>` / `print <var>`: Print variable value
+/// * `r` / `runtime`: Display runtime state
 fn dbg_loop(runtime: &Runtime) -> DbgState {
     // Initialize rustyline editor with default configuration
     let mut rl = Editor::<(), _>::new().unwrap();

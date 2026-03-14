@@ -1,4 +1,10 @@
 //! Utility functions.
+//!
+//! This module provides various helper functions used throughout Relic:
+//! - Parameter validation
+//! - Arithmetic and relational evaluation
+//! - List/vector operations
+//! - Atomic counters
 
 use std::{
     collections::HashMap,
@@ -14,6 +20,15 @@ use crate::{
     symbol::Symbol,
 };
 
+/// Validates that a list has at least n parameters.
+///
+/// # Parameters
+///
+/// * `lst` - The list to check
+/// * `n` - Minimum required length
+///
+/// # Errors
+/// Returns an error if list length < n
 pub fn no_less_than_n_params<T>(lst: &[T], n: usize) -> Result<(), String> {
     let x = lst.len();
     if x < n {
@@ -22,6 +37,15 @@ pub fn no_less_than_n_params<T>(lst: &[T], n: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Validates that a list has exactly n parameters.
+///
+/// # Parameters
+///
+/// * `lst` - The list to check
+/// * `n` - Exact required length
+///
+/// # Errors
+/// Returns an error if list length != n
 pub fn exactly_n_params<T>(lst: &[T], n: usize) -> Result<(), String> {
     let x = lst.len();
     if x > n {
@@ -30,12 +54,27 @@ pub fn exactly_n_params<T>(lst: &[T], n: usize) -> Result<(), String> {
     no_less_than_n_params(lst, n)
 }
 
+/// Extracts exactly n parameters from a proper list node.
+///
+/// # Parameters
+///
+/// * `lst` - A NodeRef pointing to a proper list
+/// * `n` - Number of parameters to extract
+///
+/// # Returns
+/// A vector of NodeRefs
+///
+/// # Errors
+/// Returns error if not a proper list or wrong parameter count
 pub fn get_n_params(lst: NodeRef, n: usize) -> Result<Vec<NodeRef>, String> {
     let result = lst.vectorize_proper_list()?;
     exactly_n_params(&result, n)?;
     Ok(result)
 }
 
+/// Converts a HashMap to a vector of key-value pairs.
+///
+/// Used for GC to iterate over environment bindings.
 pub fn map_to_assoc_lst<K, V>(map: &HashMap<K, V>) -> Vec<(K, V)>
 where
     K: Clone,
@@ -46,6 +85,18 @@ where
         .collect()
 }
 
+/// Evaluates an arithmetic operation on a list of values.
+///
+/// # Parameters
+///
+/// * `values` - Values to operate on
+/// * `op` - The binary operation function
+///
+/// # Returns
+/// The result of folding the operation
+///
+/// # Errors
+/// Returns error if fewer than 2 values provided
 pub fn eval_arith<N, Op>(values: Vec<N>, op: Op) -> Result<Number, String>
 where
     Op: Fn(Number, Number) -> Number,
@@ -61,6 +112,18 @@ where
     Ok(numbers.into_iter().skip(1).fold(first, op))
 }
 
+/// Evaluates a relational operation on exactly two values.
+///
+/// # Parameters
+///
+/// * `values` - Two values to compare
+/// * `op` - The binary comparison function
+///
+/// # Returns
+/// Symbol::T if true, Symbol::Nil if false
+///
+/// # Errors
+/// Returns error if not exactly 2 values
 pub fn eval_rel<N, Op>(values: Vec<N>, op: Op) -> Result<Symbol, String>
 where
     Op: Fn(Number, Number) -> bool,
@@ -135,25 +198,54 @@ impl Vectorize for NodeRef {
     }
 }
 
+/// A C-compatible function pointer type.
+///
+/// Used for closure FFI with the Relic runtime.
 pub type CVoidFunc = extern "C" fn() -> c_void;
 
+/// Atomically increments a counter and returns the new value.
+///
+/// Used for generating unique IDs for closures and JIT compilations.
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Increments the global counter and returns the new value.
 pub fn inc() -> usize {
     COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Returns the maximum of two values.
 pub fn max<T>(a: T, b: T) -> T
 where
     T: PartialOrd,
 {
-    if a >= b { a } else { b }
+    if a >= b {
+        a
+    } else {
+        b
+    }
 }
+/// Returns the minimum of two values.
 pub fn min<T>(a: T, b: T) -> T
 where
     T: PartialOrd,
 {
-    if a <= b { a } else { b }
+    if a <= b {
+        a
+    } else {
+        b
+    }
 }
+/// Computes the union of two intervals.
+///
+/// Used for combining source location ranges in the lexer.
+///
+/// # Parameters
+///
+/// * `a` - First interval as (min, max)
+/// * `b` - Second interval as (min, max)
+///
+/// # Returns
+/// The combined interval (min, max)
 pub fn interval_union<T>(a: (T, T), b: (T, T)) -> (T, T)
 where
     T: PartialOrd,

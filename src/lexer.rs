@@ -1,4 +1,31 @@
 //! The lexer module.
+//!
+//! Provides lexical analysis for Lisp code. The lexer uses a monad pattern
+//! ([`LexerMonad`]) to track source location information throughout tokenization.
+//!
+//! ## Tokens
+//!
+//! The lexer produces the following token types:
+//! - [`Token::LParem`]: Left parenthesis `(`
+//! - [`Token::RParem`]: Right parenthesis `)`
+//! - [`Token::Quote`]: Quote `'`
+//! - [`Token::Dot`]: Dot `.`
+//! - [`Token::Number`]: Integer or floating-point number
+//! - [`Token::Symbol`]: Lisp symbol
+//! - [`Token::String`]: String literal
+//!
+//! ## File Pointer
+//!
+//! The [`FilePointer`] type tracks position in source files for error reporting.
+//! It maintains filename, line number, column number, and string index.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use relic::lexer::LexerMonad;
+//! let lexer = LexerMonad::new_unnamed("(+ 1 2)");
+//! let tokens = lexer.parse_all().unwrap();
+//! ```
 
 //! File pointer module.
 
@@ -40,6 +67,10 @@ fn is_special_char(x: char) -> bool {
 }
 
 /// The lexer is a monad that stores the location and the source string.
+///
+/// The monad tracks file position (see [`FilePointer`]) and stores arbitrary
+/// data (typically tokens or AST nodes). This allows precise error messages
+/// with source locations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexerMonad<T> {
     data: T,
@@ -52,6 +83,14 @@ pub struct LexerMonad<T> {
 
 impl LexerMonad<()> {
     /// Construct a lexer monad from a source file.
+    ///
+    /// # Parameters
+    ///
+    /// * `filepath` - Path to the source file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read.
     pub fn new(filepath: PathBuf) -> Result<LexerMonad<()>, String> {
         Ok(LexerMonad {
             data: (),
@@ -60,6 +99,13 @@ impl LexerMonad<()> {
             source: read_to_string(&filepath).map_err(|e| e.to_string())?.into(),
         })
     }
+    /// Construct a lexer monad from a string source.
+    ///
+    /// Used for REPL input and testing.
+    ///
+    /// # Parameters
+    ///
+    /// * `source` - The source code as a string
     pub fn new_unnamed<T>(source: T) -> LexerMonad<()>
     where
         T: ToString,
@@ -79,6 +125,9 @@ where
 {
     /// The `join` (or `mu`) operator. The new location range is the union of
     /// the two old ranges.
+    ///
+    /// This is used when nesting lexer monads to compute the combined
+    /// source location span.
     pub fn join(self) -> LexerMonad<T> {
         let (begin, end) = interval_union((self.begin, self.end), (self.data.begin, self.data.end));
         LexerMonad {
@@ -109,6 +158,18 @@ impl LexerMonad<()> {
 
 impl<T> LexerMonad<T> {
     #[cfg(test)]
+    /// Creates a lexer monad for testing with explicit source location.
+    ///
+    /// # Parameters
+    ///
+    /// * `data` - The data to store
+    /// * `source` - The source code
+    /// * `l_begin` - Line where data begins
+    /// * `c_begin` - Column where data begins
+    /// * `s_begin` - String index where data begins
+    /// * `l_end` - Line where data ends
+    /// * `c_end` - Column where data ends
+    /// * `s_end` - String index where data ends
     pub(crate) fn test_new(
         data: T,
         source: String,
@@ -127,6 +188,12 @@ impl<T> LexerMonad<T> {
         }
     }
     /// Monadic bind.
+    ///
+    /// Applies a function to the monad's data while preserving location info.
+    ///
+    /// # Parameters
+    ///
+    /// * `func` - Function to apply to the data
     pub fn bind<U, F>(&self, func: F) -> LexerMonad<U>
     where
         F: Fn(&T) -> U,
@@ -139,6 +206,8 @@ impl<T> LexerMonad<T> {
         }
     }
     /// Get an empty monad that has a same file pointer.
+    ///
+    /// Returns a monad with `()` as data but with the same source location.
     pub fn get_fp(&self) -> LexerMonad<()> {
         LexerMonad {
             data: (),
@@ -166,6 +235,9 @@ impl<T> LexerMonad<T> {
         }
     }
     /// A backdoor left for creating a node from nowhere.
+    ///
+    /// Creates a new monad with the given data but with location info
+    /// copied from another monad.
     pub fn from_other<U>(data: T, other: LexerMonad<U>) -> LexerMonad<T> {
         LexerMonad {
             data,
@@ -174,9 +246,20 @@ impl<T> LexerMonad<T> {
             source: other.source,
         }
     }
+    /// Returns a reference to the monad's data.
     pub fn get(&self) -> &T {
         &self.data
     }
+
+    /// Creates an error message with location information.
+    ///
+    /// # Parameters
+    ///
+    /// * `msg` - The error message
+    ///
+    /// # Returns
+    ///
+    /// A formatted string with location and message
     pub fn error<Msg>(&self, msg: Msg) -> String
     where
         Msg: Display,
@@ -186,6 +269,14 @@ impl<T> LexerMonad<T> {
 
     /// Consumes a token and change the lexer state if it is equal to `token`.
     /// Does not change the data.
+    ///
+    /// # Parameters
+    ///
+    /// * `token` - The expected token
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError`] if the next token doesn't match.
     pub fn consume(self, token: Token) -> Result<Self, ParseError> {
         let s = self.get_end().next_token()?;
         if s.data == token {
@@ -201,6 +292,11 @@ impl<T> LexerMonad<T> {
         .map_err_simple()
     }
 
+    /// Consumes the next token and verifies it's a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError`] if the next token is not a symbol.
     pub fn consume_symbol(self) -> Result<Self, ParseError> {
         let s = self.get_end().next_token()?;
         match s.data {
@@ -221,6 +317,14 @@ impl<T> LexerMonad<T> {
 ///
 /// It provides function to increase line and column, but it is file-agnostic
 /// and does not check anything.
+///
+/// # Fields
+///
+/// * `filename` - Name of the source file
+/// * `line_number` - Current line (1-indexed)
+/// * `column_number` - Current column (0-indexed)
+/// * `str_idx` - Index in the source string
+/// * `after_newline` - Whether the previous character was a newline
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FilePointer {
     filename: String,
@@ -235,6 +339,7 @@ pub struct FilePointer {
 
 impl FilePointer {
     #[cfg(test)]
+    /// Creates a FilePointer for testing with explicit values.
     pub fn test_new(
         filename: String,
         line_number: usize,
@@ -265,6 +370,11 @@ impl PartialOrd for FilePointer {
 }
 
 impl FilePointer {
+    /// Creates a new FilePointer at the beginning of a file.
+    ///
+    /// # Parameters
+    ///
+    /// * `filename` - The name of the file
     pub fn new<T>(filename: T) -> FilePointer
     where
         T: ToString,
@@ -278,6 +388,8 @@ impl FilePointer {
         }
     }
     /// Consume a character.
+    ///
+    /// Updates line/column numbers accordingly.
     fn consume(self, source: &str) -> FilePointer {
         if self.get_char(source).unwrap() == '\n' {
             self.new_line()
@@ -286,6 +398,15 @@ impl FilePointer {
         }
     }
     /// Consume characters until `stop(current_char)` is true.
+    ///
+    /// # Parameters
+    ///
+    /// * `source` - The source string
+    /// * `stop` - Predicate that returns true when to stop
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (new FilePointer, consumed string)
     fn consume_until<F>(mut self, source: &str, stop: F) -> (Self, String)
     where
         F: Fn(char) -> bool,
@@ -301,10 +422,32 @@ impl FilePointer {
         (self, source[begin..cur_pos].to_string())
     }
 
+    /// Skip all whitespace characters.
+    ///
+    /// # Parameters
+    ///
+    /// * `source` - The source string
+    ///
+    /// # Returns
+    ///
+    /// A new FilePointer after the whitespace
     pub fn consume_whitespace(self, source: &str) -> Self {
         self.consume_until(source, |x| !is_whitespace(x)).0
     }
 
+    /// Get the next token from the current position.
+    ///
+    /// # Parameters
+    ///
+    /// * `source` - The source string
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (new FilePointer, the next Token)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::EOF`] at end of file
     pub fn next_token(mut self, source: &str) -> Result<(Self, Token), ParseError> {
         match self.get_char(source) {
             Some(ch) => match ch {
@@ -335,6 +478,18 @@ impl FilePointer {
         }
     }
 
+    /// Parse a number from the current position.
+    ///
+    /// Handles both integers and floating-point numbers.
+    /// A minus sign not followed by a digit is treated as a symbol.
+    ///
+    /// # Parameters
+    ///
+    /// * `source` - The source string
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (new FilePointer, the parsed Number token)
     pub fn consume_number(mut self, source: &str) -> Result<(Self, Token), ParseError> {
         enum State {
             Start,
@@ -377,10 +532,12 @@ impl FilePointer {
         }
     }
 
+    /// Get the current index in the source string.
     pub fn get_str_idx(&self) -> usize {
         self.str_idx
     }
 
+    /// Advance to a new line.
     fn new_line(self) -> FilePointer {
         FilePointer {
             filename: self.filename,
@@ -391,6 +548,7 @@ impl FilePointer {
         }
     }
 
+    /// Advance to the next character in the same line.
     fn new_character(self) -> FilePointer {
         FilePointer {
             filename: self.filename,
@@ -405,6 +563,15 @@ impl FilePointer {
         }
     }
 
+    /// Get the character at the current position.
+    ///
+    /// # Parameters
+    ///
+    /// * `file_str` - The source string
+    ///
+    /// # Returns
+    ///
+    /// The character at the current position, or None if at end of file
     pub fn get_char(&self, file_str: &str) -> Option<char> {
         file_str.chars().nth(self.str_idx)
     }

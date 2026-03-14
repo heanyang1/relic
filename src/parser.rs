@@ -1,4 +1,24 @@
 //! The parser module.
+//!
+//! Parses token streams from the lexer into abstract syntax trees (AST).
+//!
+//! ## Grammar
+//!
+//! The parser recognizes this grammar:
+//!
+//! ```ignore
+//! List ::= Lparem [SpecialForm] ListWithoutLparem;
+//! ListWithoutLparem ::= Rparem                    // empty list
+//!                     | Expr ListWithoutLparem    // proper list
+//!                     | Expr "." Expr Rparem;     // dotted pair
+//! ```
+//!
+//! ## Key Functions
+//!
+//! - [`parse`]: Parse a single expression
+//! - [`parse_all`]: Parse all expressions into a list
+//! - [`new_pair`]: Create a cons cell
+//! - [`vec_to_list`]: Convert a vector to a proper list
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -15,6 +35,16 @@ use crate::symbol::{SpecialForm, Symbol};
 #[cfg(test)]
 use crate::number::Number;
 
+/// Creates a new pair (cons cell) from car and cdr.
+///
+/// # Parameters
+///
+/// * `car` - The first element (head)
+/// * `cdr` - The second element (tail)
+///
+/// # Returns
+///
+/// A [`LexerMonad`] containing the pair with combined source location
 pub fn new_pair(car: NodeRef, cdr: NodeRef) -> LexerMonad<Node> {
     let cdr_fp = cdr.borrow().get_fp();
     let car_fp = car.borrow().get_fp();
@@ -25,6 +55,18 @@ pub fn new_pair(car: NodeRef, cdr: NodeRef) -> LexerMonad<Node> {
 }
 
 /// Generate a list node from a vector of node monads.
+///
+/// # Parameters
+///
+/// * `vec` - A slice of node references
+///
+/// # Returns
+///
+/// A proper list (null-terminated) containing all elements
+///
+/// # Panics
+///
+/// Panics if the vector is empty.
 pub fn vec_to_list(vec: &[NodeRef]) -> LexerMonad<Node> {
     match vec {
         [] => unreachable!(),
@@ -46,6 +88,10 @@ impl LexerMonad<()> {
     /// The `Lparem` and `SpecialForm` are already stripped when the function is called.
     ///
     /// The monad's data will be dropped and be replaced by the parsed node.
+    ///
+    /// # Returns
+    ///
+    /// A [`LexerMonad`] containing the parsed list node
     fn parse_list(self) -> Result<LexerMonad<Node>, ParseError> {
         let begin = self.get_end().next_token()?;
         match begin.get() {
@@ -77,7 +123,18 @@ impl LexerMonad<()> {
 
     /// Parse a node.
     ///
+    /// Parses a single expression from the token stream. Handles:
+    /// - Lists (with special form detection)
+    /// - Quote shorthand (`'x` -> `(quote x)`)
+    /// - Numbers
+    /// - Symbols
+    /// - Strings
+    ///
     /// The monad's data will be dropped and be replaced by the parsed node.
+    ///
+    /// # Returns
+    ///
+    /// A [`LexerMonad`] containing the parsed node
     pub fn parse(self) -> Result<LexerMonad<Node>, ParseError> {
         let first_token = self.get_end().next_token()?;
         let behind_first = first_token.get_end();
@@ -140,6 +197,16 @@ impl LexerMonad<()> {
     }
 
     /// Parse all nodes and make a list node of these nodes.
+    ///
+    /// Reads expressions until EOF, wrapping them in a list.
+    ///
+    /// # Returns
+    ///
+    /// A [`NodeRef`] pointing to a list of all parsed expressions
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseError::EOF`] if no expressions found
     pub fn parse_all(self) -> Result<NodeRef, ParseError> {
         let mut cur_lexer = self;
         let mut nodes = vec![];

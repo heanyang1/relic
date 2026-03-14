@@ -1,4 +1,107 @@
 //! The runtime module.
+//!
+//! This module implements the core runtime for the Relic Lisp interpreter. It provides
+//! a stack-based virtual machine with garbage collection, environment management, and
+//! debugger support.
+//!
+//! ## Architecture Overview
+//!
+//! The runtime is designed as a stack machine that evaluates Lisp expressions. Unlike
+//! traditional register-based virtual machines (like SICP's register machine), Relic
+//! uses a stack for simplicity and to avoid parsing assignment expressions.
+//!
+//! ## Stack Machine
+//!
+//! The [`StackMachine`] trait defines the core operations:
+//! - **Push**: Push an item (index to GC area) onto the stack
+//! - **Pop**: Pop an item from the stack
+//! - **Top**: View the top item without popping
+//! - **Swap**: Swap the top two elements
+//! - **Apply**: Pop operator and operands, evaluate, push result
+//!
+//! The stack contains indices into the GC area, not the actual data. This design
+//! simplifies ownership and allows the garbage collector to manage all heap data.
+//!
+//! ### Evaluation Model
+//!
+//! To evaluate an expression like `(+ 1 2)`:
+//! 1. Push the arguments: push `1`, push `2`
+//! 2. Push the number of arguments: push `2`
+//! 3. Push the operator: push `+`
+//! 4. Call `apply()` which pops the operator, pops nargs, pops nargs operands,
+//!    evaluates the operation, and pushes the result
+//!
+//! ## Garbage Collection
+//!
+//! Relic's GC is completely modeled after SICP's GC. The GC area is split into
+//! two halves ("areas"):
+//!
+//! - **From space**: The active area where new objects are allocated
+//! - **To space**: The inactive area where objects are copied during GC
+//!
+//! ### GC Algorithm
+//!
+//! 1. **Allocation**: New objects are simply appended to the from-space vector.
+//!    If from-space is full, GC is triggered.
+//!
+//! 2. **Collection Phase**:
+//!    - Start from root variables and stack elements
+//!    - Use depth-first search (via [`gc_dfs`]) to copy all reachable nodes
+//!    - For each reachable node:
+//!      - Copy it to to-space
+//!      - Leave a "broken heart" marker in from-space pointing to new location
+//!      - Recursively process children (pairs, environments, closures)
+//!
+//! 3. **Compaction**: After collection, swap the two areas. If no memory was
+//!    reclaimed (same free count), double the area size.
+//!
+//! ### Broken Heart Technique
+//!
+//! When an object is copied from from-space to to-space, the original location
+//! is replaced with a `BrokenHeart` variant containing the new index. If another
+//! object points to this relocated object, `gc_dfs` detects the broken heart
+//! and returns the new location directly without recursing.
+//!
+//! ## RuntimeNode Types
+//!
+//! The runtime can store these types:
+//! - [`RuntimeNode::Symbol`]: Lisp symbols (nil, t, built-ins, user-defined)
+//! - [`RuntimeNode::Number`]: Integer and floating-point numbers
+//! - [`RuntimeNode::Pair`]: Cons cells (car, cdr as indices)
+//! - [`RuntimeNode::Environment`]: Variable bindings with lexical scoping
+//! - [`RuntimeNode::Closure`]: Function objects with captured environment
+//! - [`RuntimeNode::BrokenHeart`]: Forwarding pointer during GC
+//!
+//! ## Environments
+//!
+//! Environments implement lexical scoping via a chain:
+//! - Each environment has a map of variable name -> value index
+//! - Each environment optionally references an outer environment
+//! - Variable lookup searches current env, then walks the chain outward
+//! - `set!` modifies the first environment in the chain that contains the variable
+//!
+//! ## Closures
+//!
+//! Closures capture the environment at creation time. When a lambda is evaluated:
+//! 1. A closure object is created with the current environment reference
+//! 2. When called, a new environment is created with the closure's env as outer
+//! 3. Arguments are bound in this new environment
+//!
+//! ## Debugger Support
+//!
+//! The runtime supports debugging through the [`DbgState`] enum:
+//! - [`DbgState::Normal`]: Only break on explicit breakpoints
+//! - [`DbgState::Next`]: Break after each expression evaluation
+//! - [`DbgState::Step`]: Break after each runtime API call
+//!
+//! The `api_called()`, `breakpoint()`, and `evaluated()` methods integrate with
+//! the debugger callback system.
+//!
+//! ## FFI Considerations
+//!
+//! All data access is through indices to avoid ownership issues in C bindings.
+//! The FFI functions in `lib.rs` demonstrate this pattern: they take indices
+//! as parameters and return indices or primitive types.
 
 use std::{collections::HashMap, fmt::Display, mem::swap, result::Result, vec::Vec};
 
@@ -10,7 +113,7 @@ use crate::{
     node::{Node, PrintableNode},
     number::Number,
     symbol::Symbol,
-    util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
+    util::{eval_arith, eval_rel, map_to_assoc_lst, CVoidFunc},
 };
 
 use libloading::Library;
@@ -215,20 +318,6 @@ impl LoadToRuntime for String {
     }
 }
 
-// /// Pop the stack for `n` times if `stmt` returns error.
-// /// It is used to remove previous objects from the stack, not the object being
-// /// loaded to the stack (which will be taken care of by `load_to`).
-// macro_rules! pop_on_err {
-//     ($stmt:expr, $runtime:expr, $n: expr) => {
-//         $stmt.map_err(|e| {
-//             for _ in 0..$n {
-//                 $runtime.pop();
-//             }
-//             e
-//         })?
-//     };
-// }
-
 impl LoadToRuntime for LexerMonad<()> {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
         self.parse()?.load_to(runtime)
@@ -258,89 +347,6 @@ impl LoadToRuntime for &LexerMonad<Node> {
         }
     }
 }
-
-// impl LoadToRuntime for LexerMonad<()> {
-//     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {
-//         match self.try_next() {
-//             Ok(TokenType::LParem) => parse_list(self, runtime),
-//             Ok(TokenType::Quote) => {
-//                 Symbol::Nil.load_to(runtime)?;
-//                 pop_on_err!(self.load_to(runtime), runtime, 1);
-//                 runtime.new_pair();
-//                 pop_on_err!(
-//                     Symbol::User("quote".to_string()).load_to(runtime),
-//                     runtime,
-//                     1
-//                 );
-//                 runtime.new_pair();
-//                 Ok(())
-//             }
-//             Ok(TokenType::Number(i)) => i.load_to(runtime),
-//             Ok(TokenType::String(str)) => {
-//                 Symbol::Nil.load_to(runtime)?;
-//                 pop_on_err!(Symbol::from(str).load_to(runtime), runtime, 1);
-//                 runtime.new_pair();
-//                 pop_on_err!(
-//                     Symbol::User("quote".to_string()).load_to(runtime),
-//                     runtime,
-//                     1
-//                 );
-//                 runtime.new_pair();
-//                 Ok(())
-//             }
-//             Ok(TokenType::Symbol(symbol)) => Symbol::from(symbol).load_to(runtime),
-//             Ok(TokenType::RParem) => Err(ParseError::SyntaxError(format!(
-//                 "At position {}: Unexpected ')'",
-//                 self.get_cur_pos()
-//             ))),
-//             Ok(TokenType::Dot) => Err(ParseError::SyntaxError(format!(
-//                 "At position {}: Unexpected '.'",
-//                 self.get_cur_pos()
-//             ))),
-//             Err(e) => Err(e),
-//         }
-//     }
-// }
-
-// /// The same as [Node::parse_list], except that it deals with the runtime and
-// /// loads everything into the stack.
-// ///
-// /// # Errors
-// ///
-// /// Returns [ParseError] and restores the stack to the state before the
-// /// function call if an error occurs.
-// fn parse_list(tokens: &mut Lexer, runtime: &mut Runtime) -> Result<(), ParseError> {
-//     macro_rules! consume {
-//         ($tokens:expr, $ty:expr) => {
-//             $tokens.consume($ty)
-//         };
-//     }
-//     match tokens.peek_next_token() {
-//         Ok((_, TokenType::RParem)) => {
-//             // case 1
-//             consume!(tokens, TokenType::RParem)?;
-//             Symbol::Nil.load_to(runtime)
-//         }
-//         _ => {
-//             tokens.load_to(runtime)?; // car
-
-//             // cdr
-//             if let Ok((_, TokenType::Dot)) = tokens.peek_next_token() {
-//                 // case 3
-//                 pop_on_err!(consume!(tokens, TokenType::Dot), runtime, 1); // pop car
-//                 pop_on_err!(tokens.load_to(runtime), runtime, 1);
-//                 pop_on_err!(consume!(tokens, TokenType::RParem), runtime, 2); // pop both
-//             } else {
-//                 // case 2
-//                 pop_on_err!(parse_list(tokens, runtime), runtime, 1); // pop car
-//             };
-
-//             runtime.swap();
-//             runtime.new_pair();
-//             Ok(())
-//         }
-//     }
-// }
 
 impl LoadToRuntime for RuntimeNode {
     fn load_to(self, runtime: &mut Runtime) -> Result<(), ParseError> {

@@ -1,4 +1,17 @@
 //! The data structure of node and other compiled-time objects.
+//!
+//! This module defines:
+//! - [`Node`]: The AST node type used at compile-time
+//! - [`NodeRef`]: A reference-counted pointer to a Node
+//! - [`PrintableNode`]: A simplified node type for display purposes
+//!
+//! ## Node Types
+//!
+//! - `Symbol`: Lisp symbols (built-in or user-defined)
+//! - `String`: String literals
+//! - `Number`: Integer or floating-point numbers
+//! - `Pair`: Cons cells (car and cdr)
+//! - `SpecialForm`: Special form identifiers
 
 use std::{
     cell::RefCell,
@@ -15,6 +28,15 @@ use crate::{
 
 /// The node that can be printed. To print other kinds of nodes, you can
 /// transform them to this kind of node.
+///
+/// This is a simplified representation used for display purposes.
+/// It handles circular references by tracking visited nodes.
+///
+/// # Variants
+///
+/// - `String(String)`: A string value
+/// - `Pair(Rc<PrintableNode>, Rc<PrintableNode>)`: A cons cell
+/// - `Nil`: The empty list
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrintableNode {
     String(String),
@@ -67,8 +89,7 @@ impl PrintableNode {
                     let next = {
                         match (*current).clone() {
                             PrintableNode::Pair(next_car, next_cdr) => {
-                                let cdr_ptr =
-                                    Rc::<PrintableNode>::as_ptr(&next_cdr);
+                                let cdr_ptr = Rc::<PrintableNode>::as_ptr(&next_cdr);
 
                                 if let Some(prev_id) = visited.get(&cdr_ptr) {
                                     write!(f, " . #{prev_id}#",)?;
@@ -78,8 +99,7 @@ impl PrintableNode {
                                 let next_id = current_id + 1;
                                 visited.insert(cdr_ptr, next_id);
 
-                                let car_ptr =
-                                    Rc::<PrintableNode>::as_ptr(&next_car);
+                                let car_ptr = Rc::<PrintableNode>::as_ptr(&next_car);
                                 if let Some(prev_id) = visited.get(&car_ptr) {
                                     write!(f, " #{prev_id}#",)?;
                                 } else {
@@ -128,24 +148,38 @@ impl From<&LexerMonad<Node>> for PrintableNode {
     }
 }
 
+/// A reference-counted pointer to a LexerMonad<Node>.
+///
+/// This type is used throughout the AST to share nodes efficiently.
 pub type NodeRef = Rc<RefCell<LexerMonad<Node>>>;
 
 /// The data structure of the node in reference counting graph.
+///
+/// This is the compile-time AST representation of Lisp expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
-    /// Symbols.
+    /// A Lisp symbol (built-in or user-defined).
     Symbol(Symbol),
-    /// String literals.
+    /// A string literal.
     String(String),
-    /// Numbers.
+    /// An integer or floating-point number.
     Number(Number),
-    /// Pair of nodes.
+    /// A cons cell (pair) with car and cdr.
     Pair(NodeRef, NodeRef),
-    /// An item of special form.
+    /// A special form identifier.
     SpecialForm(SpecialForm),
 }
 
 impl LexerMonad<Node> {
+    /// Extracts the user-defined symbol name.
+    ///
+    /// # Returns
+    ///
+    /// The symbol name as a String
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is not a user-defined symbol
     pub fn as_user_symbol(&self) -> Result<String, String> {
         match self.get() {
             Node::Symbol(Symbol::User(name)) => Ok(name.clone()),
@@ -153,6 +187,15 @@ impl LexerMonad<Node> {
         }
     }
 
+    /// Extracts car and cdr from a pair node.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (car, cdr) NodeRefs
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is not a pair
     pub fn as_pair(&self) -> Result<(NodeRef, NodeRef), String> {
         match self.get() {
             Node::Pair(car, cdr) => Ok((car.clone(), cdr.clone())),

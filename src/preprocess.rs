@@ -1,4 +1,15 @@
 //! The preprocessor module.
+//!
+//! This module handles syntactic transformations that occur before compilation:
+//! - Macro expansion
+//! - Syntax desugaring (cond -> if, let -> lambda, etc.)
+//!
+//! ## Transformations
+//!
+//! - `(cond (c1 v1) (c2 v2) ...)` -> nested `(if c1 (begin v1) ...)`
+//! - `(let ((x e) ...) body...)` -> `((lambda (x ...) body...) e ...)`
+//! - `(define (f x ...) body...)` -> `(define f (lambda (x ...) body...))`
+//! - `(lambda (...) body...)` -> `(lambda (...) (begin body...))`
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -29,9 +40,13 @@ macro_rules! body {
     };
 }
 
-/// Macros.
+/// A user-defined macro created via `define-syntax-rule`.
+///
+/// Macros pattern-match on expressions and transform them using templates.
 pub struct Macro {
+    /// The pattern to match against.
     pattern: NodeRef,
+    /// The template to expand to when pattern matches.
     template: NodeRef,
 }
 
@@ -42,6 +57,18 @@ impl Macro {
 }
 
 impl LexerMonad<Node> {
+    /// Replaces all occurrences of a source node with a destination node.
+    ///
+    /// Used for macro expansion and code transformation.
+    ///
+    /// # Parameters
+    ///
+    /// * `src` - The node to find
+    /// * `dst` - The node to replace with
+    ///
+    /// # Returns
+    ///
+    /// A new LexerMonad with the substitution applied
     pub fn replace_node(&self, src: &Node, dst: &Node) -> Self {
         self.bind(move |node| {
             if *node == *src {
@@ -59,6 +86,11 @@ impl LexerMonad<Node> {
         })
     }
 
+    /// Checks if the node is a valid macro pattern.
+    ///
+    /// A valid pattern is a proper list where each element is either:
+    /// - A user-defined symbol (matches anything)
+    /// - nil (matches the empty list)
     fn is_pattern(&self) -> bool {
         match self.get() {
             Node::Pair(car, cdr) => match (car.borrow().get(), cdr.borrow().get()) {
@@ -72,6 +104,19 @@ impl LexerMonad<Node> {
     }
 }
 
+/// Pattern matching for macro expansion.
+///
+/// Matches a pattern against an actual expression and collects bindings.
+///
+/// # Parameters
+///
+/// * `pattern` - The macro pattern
+/// * `actual` - The expression to match
+/// * `bindings` - HashMap to store matched bindings
+///
+/// # Returns
+///
+/// Ok(()) on success, Err(String) on mismatch
 pub fn pattern_matching(
     pattern: NodeRef,
     actual: NodeRef,
@@ -101,10 +146,23 @@ pub fn pattern_matching(
     }
 }
 
+/// Trait for types that can be preprocessed.
+///
+/// Implementors perform syntactic transformations like macro expansion
+/// and syntax desugaring.
 pub trait PreProcess
 where
     Self: Sized,
 {
+    /// Preprocess the AST before evaluation or compilation.
+    ///
+    /// # Parameters
+    ///
+    /// * `macros` - Map of defined macros
+    ///
+    /// # Returns
+    ///
+    /// The transformed AST
     fn preprocess(&self, macros: &mut HashMap<String, Macro>) -> Result<Self, String>;
 }
 

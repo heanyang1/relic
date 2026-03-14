@@ -1,3 +1,19 @@
+//! Relic - A minimal Lisp system written in Rust that compiles to C.
+//!
+//! This crate provides:
+//! - A Lisp lexer and parser
+//! - A runtime with garbage collection
+//! - A compiler that generates C code
+//! - FFI bindings for C integration
+//!
+//! ## Core Modules
+//!
+//! - [`lexer`]: Lexical analysis
+//! - [`parser`]: Parsing Lisp expressions
+//! - [`runtime`]: Runtime environment with GC
+//! - [`compile`]: Compilation to C
+//! - [`node`]: AST node definitions
+
 pub mod compile;
 pub mod env;
 pub mod error;
@@ -14,9 +30,33 @@ mod util;
 use std::sync::{LazyLock, RwLock};
 
 use crate::{
-    env::Env, error::ParseError, lexer::LexerMonad, logger::log_warning, node::Node, number::Number, package::load_package, runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine}, symbol::Symbol, util::CVoidFunc
+    env::Env,
+    error::ParseError,
+    lexer::LexerMonad,
+    logger::log_warning,
+    node::Node,
+    number::Number,
+    package::load_package,
+    runtime::{Closure, LoadToRuntime, Runtime, RuntimeNode, StackMachine},
+    symbol::Symbol,
+    util::CVoidFunc,
 };
 
+/// Unwraps a Result, printing an error and aborting on failure.
+///
+/// This function is used throughout Relic to handle errors that should
+/// never occur in normal operation. It logs the error message and aborts
+/// the program.
+///
+/// # Type Parameters
+///
+/// * `T` - The success type
+/// * `E` - The error type that implements `ToString`
+///
+/// # Parameters
+///
+/// * `result` - The Result to unwrap
+/// * `rt` - The runtime for error reporting
 pub fn unwrap_result<T, E>(result: Result<T, E>, rt: &mut Runtime) -> T
 where
     E: ToString,
@@ -30,6 +70,17 @@ where
     }
 }
 
+/// Runs a parsed node using JIT compilation.
+///
+/// This function compiles the given node and returns the result as a string.
+///
+/// # Parameters
+///
+/// * `node` - The parsed AST node to execute
+///
+/// # Returns
+///
+/// A string representation of the result, or an error message
 pub fn run_node(node: LexerMonad<Node>) -> Result<String, String> {
     node.jit_compile(false)?;
     let mut runtime = RT.write().unwrap();
@@ -444,7 +495,11 @@ pub extern "C" fn rt_get_bool(index: usize) -> i32 {
 pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
     let mut rt = RT.write().unwrap();
     rt.api_called(format!("rt_is_symbol({index})"));
-    if rt.get_symbol(index).is_ok() { 1 } else { 0 }
+    if rt.get_symbol(index).is_ok() {
+        1
+    } else {
+        0
+    }
 }
 
 /// Import a package.

@@ -1,7 +1,27 @@
 //! Symbols and special forms.
+//!
+//! This module defines built-in symbols and special forms used in Relic.
+//!
+//! ## Special Forms
+//!
+//! Special forms are operators that don't follow the standard evaluation rules.
+//! See the [`SpecialForm`] enum for details.
+//!
+//! ## Built-in Symbols
+//!
+//! Built-in symbols include:
+//! - `nil`, `t`: Boolean values
+//! - `atom?`, `number?`: Type predicates
+//! - `eq?`: Equality test
+//! - `car`, `cdr`, `cons`: List operations
+//! - `+`, `-`, `*`, `/`: Arithmetic
+//! - `>`, `<`, `>=`, `<=`, `=`: Comparison
 
 use std::{collections::HashMap, fmt::Display, str::FromStr, sync::LazyLock};
 
+/// A mapping from special form names to their enum variants.
+///
+/// Used for parsing special forms in the lexer/parser.
 pub static SPECIAL_FORMS: LazyLock<HashMap<&'static str, SpecialForm>> = LazyLock::new(|| {
     HashMap::from([
         ("quote", SpecialForm::Quote),
@@ -26,6 +46,9 @@ pub static SPECIAL_FORMS: LazyLock<HashMap<&'static str, SpecialForm>> = LazyLoc
     ])
 });
 
+/// A mapping from symbol names to their enum variants.
+///
+/// Used for parsing built-in symbols in the lexer/parser.
 pub static SYMBOLS: LazyLock<HashMap<&'static str, Symbol>> = LazyLock::new(|| {
     HashMap::from([
         ("nil", Symbol::Nil),
@@ -386,7 +409,12 @@ impl Display for Symbol {
     }
 }
 
-/// The `Nil`` symbol.
+/// Creates a nil symbol.
+///
+/// # Usage
+///
+/// - `nil!()` - Creates a plain Node::Symbol(Symbol::Nil)
+/// - `nil!(fp)` - Creates a LexerMonad with nil and file pointer `fp`
 #[macro_export]
 macro_rules! nil {
     () => {
