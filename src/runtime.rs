@@ -118,6 +118,13 @@ use crate::{
 
 use libloading::Library;
 
+/// A handle to a loaded package, keeping the underlying shared library or JIT
+/// code alive.
+pub enum PackageHandle {
+    Library(Library),
+    Jit,
+}
+
 /// Closures.
 ///
 /// This is probably the easiest way to represent lambdas using C function.
@@ -257,7 +264,7 @@ pub struct Runtime {
     ///
     /// This field is not used, but we need to keep it so that we can use the
     /// C function pointers inside the shared library.
-    packages: HashMap<String, Library>,
+    packages: HashMap<String, PackageHandle>,
     /// Callback function called when a breakpoint is hit.
     dbg_callback: Option<StaticFn>,
 }
@@ -605,7 +612,7 @@ impl StackMachine<usize> for Runtime {
 
 // Package manipulation
 impl Runtime {
-    pub fn add_package(&mut self, name: String, package: Library) {
+    pub fn add_package(&mut self, name: String, package: PackageHandle) {
         assert!(self.packages.insert(name, package).is_none());
     }
 
@@ -613,7 +620,7 @@ impl Runtime {
         self.packages.contains_key(name)
     }
 
-    pub fn get_package(&self, name: &str) -> &Library {
+    pub fn get_package(&self, name: &str) -> &PackageHandle {
         self.packages.get(name).unwrap()
     }
 }

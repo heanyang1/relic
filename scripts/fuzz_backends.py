@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""Fuzz-test Relic's C and LLVM compilation backends for consistency.
+"""Fuzz-test Relic's C and LLVM (JIT) compilation backends for consistency.
 
-Generates random Lisp expressions, runs each through both the C and LLVM
-JIT compilation backends, and reports any result mismatches.
+Generates random Lisp expressions, runs each through the C and/or LLVM
+backends, and reports any result mismatches.
+
+The LLVM backend uses inkwell's in-process JIT (JitFunction) — no temp
+files, no clang subprocess.  The C backend shells out to gcc and writes
+compiled .relic files under /tmp/relic/.
 
 Usage:
-  python3 scripts/fuzz_backends.py                          # 2000 random tests
-  python3 scripts/fuzz_backends.py -n 10000 --depth 6       # More coverage
-  python3 scripts/fuzz_backends.py --seed 42                # Reproducible
+  python3 scripts/fuzz_backends.py                              # 2000 tests, both backends
+  python3 scripts/fuzz_backends.py --backend llvm               # JIT backend only
+  python3 scripts/fuzz_backends.py --backend c                  # C backend only
+  python3 scripts/fuzz_backends.py -n 10000 --depth 6           # More coverage
+  python3 scripts/fuzz_backends.py --jobs 4 --backend llvm      # Parallel JIT fuzzing
+  python3 scripts/fuzz_backends.py --seed 42                    # Reproducible
 
-NOTE: Parallel execution (--jobs >1) will cause spurious mismatches because
-Relic's JIT compilation uses process-local atomics for temp file names, so
-concurrent relic processes can clobber each other's /tmp/relic/ files.
-Always use --jobs 1 (the default) for correct results.
+Parallel execution:
+  --jobs >1 is safe for --backend llvm (in-process JIT, no temp files).
+  --jobs >1 with --backend c or dual-backend mode will cause spurious
+  mismatches because concurrent relic processes race on /tmp/relic/ file names.
 """
 
 import subprocess
@@ -21,7 +28,6 @@ import os
 import tempfile
 import random
 import argparse
-import signal
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections import Counter
 
@@ -198,15 +204,29 @@ def extract_result(stdout):
     return stdout.strip()
 
 
-def compare_one(expr, timeout):
-    """Run one expr through both backends. Return (expr, diff_msg or None)."""
+def compare_one(expr, timeout, backend=None):
+    """Run one expr through the specified backend(s).
+
+    If backend is "c" or "llvm", test only that backend.
+    If backend is None, test both and compare.
+    Returns (expr, diff_msg or None).
+    """
+    if backend is not None:
+        res = run_backend(expr, backend, timeout)
+        if res is None:
+            return expr, f"{backend} backend TIMEOUT"
+        rc, out, err = res
+        if rc != 0:
+            return expr, f"{backend} backend FAILED (rc={rc}): {err[:200]!r}"
+        return expr, None
+
     c_res = run_backend(expr, "c", timeout)
     l_res = run_backend(expr, "llvm", timeout)
 
-    # Both timed out → consistent
+    # Both timed out -> consistent
     if c_res is None and l_res is None:
         return expr, None
-    # One timed out → mismatch
+    # One timed out -> mismatch
     if c_res is None:
         return expr, f"C backend TIMEOUT, LLVM returned ({l_res[0]}, {l_res[1][:200]!r})"
     if l_res is None:
@@ -218,7 +238,7 @@ def compare_one(expr, timeout):
     c_result = extract_result(c_out)
     l_result = extract_result(l_out)
 
-    # If return codes differ → likely a crash in one backend
+    # If return codes differ -> likely a crash in one backend
     if (c_rc == 0) != (l_rc == 0):
         return expr, (
             f"Diff return codes:\n"
@@ -236,8 +256,17 @@ def compare_one(expr, timeout):
             )
         return expr, None
 
-    # Both crashed — that's consistent
+    # Both crashed -- that's consistent
     return expr, None
+
+
+def _run_one(args_tuple):
+    """Pickle-able entry point for ProcessPoolExecutor.
+
+    args_tuple is (expr, timeout, backend) where backend may be None.
+    """
+    expr, timeout, backend = args_tuple
+    return compare_one(expr, timeout, backend)
 
 
 # ---------------------------------------------------------------------------
@@ -246,33 +275,51 @@ def compare_one(expr, timeout):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Fuzz test Relic's C and LLVM backends for consistency"
+        description="Fuzz test Relic's C and LLVM (JIT) backends for consistency"
     )
-    parser.add_argument("-n", type=int, default=2000, help="Number of random expressions")
-    parser.add_argument("--depth", type=int, default=5, help="Max AST depth")
-    parser.add_argument("--timeout", type=int, default=15, help="Timeout per expr (seconds)")
+    parser.add_argument("-n", type=int, default=2000,
+                        help="Number of random expressions")
+    parser.add_argument("--depth", type=int, default=5,
+                        help="Max AST depth")
+    parser.add_argument("--timeout", type=int, default=15,
+                        help="Timeout per expr (seconds)")
+    parser.add_argument("--backend", choices=["c", "llvm"],
+                        help="Test only one backend (default: both, compare)")
     parser.add_argument("--jobs", type=int, default=1,
-                        help="Parallel workers (WARNING: >1 causes spurious mismatches "
-                             "due to /tmp/relic/ file races)")
-
-    parser.add_argument("--seed", type=int, help="Random seed (for reproducibility)")
+                        help="Parallel workers. Safe with --jobs >1 for --backend llvm "
+                             "(JIT, no temp files). Not safe with C backend due to "
+                             "/tmp/relic/ file name races.")
+    parser.add_argument("--seed", type=int,
+                        help="Random seed (for reproducibility)")
+    parser.add_argument("--err", action="store_true",
+                        help="Show stderr on mismatches")
     args = parser.parse_args()
 
     if args.seed is not None:
         random.seed(args.seed)
 
+    # Warn about unsafe parallel usage
+    if args.jobs > 1 and args.backend != "llvm":
+        print("WARNING: --jobs >1 with the C backend (or dual mode) will cause")
+        print("         spurious mismatches due to /tmp/relic/ file name races.")
+        print()
+
     if not os.path.exists(BINARY):
         print(f"Building Relic (release)...", end=" ", flush=True)
-        r = subprocess.run(["cargo", "build", "--release"], capture_output=True, text=True)
+        r = subprocess.run(["cargo", "build", "--release"],
+                           capture_output=True, text=True)
         if r.returncode != 0:
             print("FAILED")
             print(r.stderr)
             sys.exit(1)
         print("done")
 
+    mode_label = (f"backend={args.backend}" if args.backend
+                  else "dual (C vs LLVM/JIT)")
     print(f"Generating {args.n} random expressions (depth={args.depth})...")
     exprs = [generate_expr(args.depth) for _ in range(args.n)]
-    print(f"Testing with {args.jobs} workers (timeout={args.timeout}s)...")
+    print(f"Testing {mode_label} with {args.jobs} workers "
+          f"(timeout={args.timeout}s)...")
     print()
 
     mismatches = []
@@ -281,11 +328,14 @@ def main():
     skipped = 0
     outcomes = Counter()
 
+    tasks = [(e, args.timeout, args.backend) for e in exprs]
+
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
-        fut_map = {pool.submit(compare_one, e, args.timeout): e for e in exprs}
+        fut_map = {pool.submit(_run_one, t): t[0] for t in tasks}
         for fut in as_completed(fut_map):
             total += 1
-            expr, diff = fut.result()
+            _, diff = fut.result()
+            expr = fut_map[fut]
             if diff is None:
                 ok += 1
                 outcomes["consistent"] += 1
@@ -295,21 +345,21 @@ def main():
 
             if total % 200 == 0:
                 pct = ok / total * 100
-                print(f"  {total}/{args.n} tested  –  {pct:.0f}% consistent, "
+                print(f"  {total}/{args.n} tested  --  {pct:.0f}% ok, "
                       f"{len(mismatches)} mismatches so far")
 
     print()
     print("=" * 60)
-    print(f"RESULTS  ({args.n} expressions)")
+    print(f"RESULTS  ({args.n} expressions, {mode_label})")
     print("=" * 60)
-    print(f"  Consistent (both backends agree):  {ok}")
-    print(f"  Mismatches:                        {len(mismatches)}")
-    print(f"  Skipped (both timed out):          {skipped}")
+    print(f"  Ok (no issues):      {ok}")
+    print(f"  Mismatches/errors:   {len(mismatches)}")
     print()
 
     if mismatches:
-        print(f"First {min(20, len(mismatches))} mismatches:\n")
-        for expr, diff in mismatches[:20]:
+        n_show = min(20, len(mismatches))
+        print(f"First {n_show} mismatches:\n")
+        for expr, diff in mismatches[:n_show]:
             print(f"  Expression: {expr}")
             for line in diff.splitlines():
                 print(f"    {line}")

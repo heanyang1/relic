@@ -57,9 +57,10 @@
 use std::{cell::Cell, collections::HashMap};
 
 use inkwell::{
-    AddressSpace, IntPredicate,
+    AddressSpace, IntPredicate, OptimizationLevel,
     builder::Builder,
     context::Context,
+    execution_engine::ExecutionEngine,
     module::Module,
     values::{FunctionValue, IntValue, PointerValue},
 };
@@ -508,6 +509,12 @@ impl<'ctx> LlvmCodeGen<'ctx> {
                 .build_return(Some(&self.i32_type().const_int(0, false)))
                 .unwrap();
         }
+    }
+
+    pub fn create_jit_execution_engine(&self) -> Result<ExecutionEngine<'ctx>, String> {
+        self.module
+            .create_jit_execution_engine(OptimizationLevel::Default)
+            .map_err(|e| e.to_str().unwrap_or("unknown LLVM error").to_string())
     }
 
     pub fn write_to_file(&self, path: &str) -> Result<(), String> {

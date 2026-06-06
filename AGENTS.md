@@ -144,12 +144,12 @@ cargo build -j 1   # Sequential if parallel issues
 - Use `-d` flag with `cargo run` for debug logging
 - Check `logger.rs` for available log levels: `log_debug`, `log_warning`, `log_error`
 - Use `rt_breakpoint()` in compiled code for debugger integration
-- To inspect generated LLVM IR, enable LLVM compilation and check `/tmp/relic/llvm_jit_*.ll`
+- To inspect generated LLVM IR, compile with `relic compile --backend llvm -i program.lisp -o program.ll`
 - Generated C files are at `/tmp/relic/jit_*.c`
 
 ### Adding LLVM Backend Support for a New Feature
 1. If the feature affects code generation, update `src/compile.rs` (C backend) and `src/compile_llvm.rs` (LLVM backend)
-2. The LLVM backend uses `inkwell` to build LLVM IR in-memory, serializes to `.ll` file, then compiles with clang
+2. The LLVM backend uses `inkwell` to build LLVM IR in-memory, then JIT-compiles it via `ExecutionEngine::get_function` / `JitFunction::call` (no file I/O or clang subprocess)
 3. `LlvmCodeGen` mirrors `CodeGen` but generates LLVM IR instead of C strings
 4. All runtime API calls (`rt_push`, `rt_pop`, `rt_apply`, etc.) are declared as `declare` in the LLVM module
 5. String constants are deduplicated as global `@.str_N` arrays
@@ -157,14 +157,17 @@ cargo build -j 1   # Sequential if parallel issues
 7. Use `assert_eval_node_dual!` / `assert_eval_text_dual!` in tests to verify both backends produce identical results
 
 ### Fuzz Testing Both Backends
-Run the Python fuzzer to compare C and LLVM backends on random Lisp expressions:
+Run the Python fuzzer to compare C and LLVM/JIT backends on random Lisp expressions:
 ```bash
-python3 scripts/fuzz_backends.py            # 2000 random tests
-python3 scripts/fuzz_backends.py -n 5000    # More coverage
-python3 scripts/fuzz_backends.py --seed 42  # Reproducible
+python3 scripts/fuzz_backends.py                       # 2000 random tests, both backends
+python3 scripts/fuzz_backends.py --backend llvm        # JIT backend only
+python3 scripts/fuzz_backends.py -n 5000               # More coverage
+python3 scripts/fuzz_backends.py --seed 42             # Reproducible
+python3 scripts/fuzz_backends.py --jobs 4 --backend llvm  # Parallel JIT fuzzing (safe)
 ```
-The fuzzer always uses `--jobs 1` by default because Relic's JIT temp file naming
-(process-local atomics) races under parallel invocations.
+The fuzzer defaults to `--jobs 1` because the C backend writes temp files under
+`/tmp/relic/` that race under parallel invocations. The LLVM/JIT backend
+uses in-process compilation (no temp files) so `--jobs >1 --backend llvm` is safe.
 
 ## Notes
 - The project uses Rust edition 2024 (experimental)

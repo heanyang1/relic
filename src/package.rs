@@ -73,8 +73,10 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     process::Command,
+    sync::{LazyLock, Mutex},
 };
 
+use inkwell::{context::Context, execution_engine::ExecutionEngine};
 use libloading::{Library, Symbol};
 
 use crate::{
@@ -85,9 +87,20 @@ use crate::{
     node::Node,
     parser::new_pair,
     preprocess::{Macro, PreProcess},
+    runtime::PackageHandle,
     symbol::SpecialForm,
     util::inc,
 };
+
+struct JitHolder {
+    _context: Context,
+    _engine: ExecutionEngine<'static>,
+}
+
+unsafe impl Send for JitHolder {}
+unsafe impl Sync for JitHolder {}
+
+static JIT_ENGINES: LazyLock<Mutex<Vec<JitHolder>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Reads text from a file, parses and preprocesses it, then returns a node.
 pub fn file_to_node(
@@ -135,7 +148,7 @@ pub fn load_package(name: &str) -> Result<(), String> {
 fn add_package(lib: Library, name: &str) -> Result<(), String> {
     call_library_fn(&lib, name)?;
     let mut runtime = RT.write().unwrap();
-    runtime.add_package(name.to_string(), lib);
+    runtime.add_package(name.to_string(), PackageHandle::Library(lib));
     Ok(())
 }
 
@@ -209,41 +222,34 @@ impl LexerMonad<Node> {
     }
 
     pub fn jit_compile_llvm(&self, debug_info: bool) -> Result<(), String> {
-        std::fs::create_dir_all("/tmp/relic").map_err(|e| e.to_string())?;
-
         let lib_name = format!("llvm_jit_{}", inc());
-        let ll_source_name = format!("/tmp/relic/{lib_name}.ll");
-        let lib_full_name = format!("/tmp/relic/{lib_name}.relic");
 
-        let context = inkwell::context::Context::create();
-        let mut codegen = LlvmCodeGen::new_library(&context, lib_name.to_string());
-        compile_llvm::compile_llvm(self, &mut codegen, debug_info)?;
-        codegen.finalize();
-        codegen.write_to_file(&ll_source_name)?;
+        let context = Context::create();
+        let engine = {
+            let mut codegen = LlvmCodeGen::new_library(&context, lib_name.to_string());
+            compile_llvm::compile_llvm(self, &mut codegen, debug_info)?;
+            codegen.finalize();
+            codegen.create_jit_execution_engine()?
+        };
 
-        let status = Command::new("clang")
-            .args([
-                "-shared",
-                "-fPIC",
-                "-O3",
-                "-g",
-                "-o",
-                &lib_full_name,
-                &ll_source_name,
-                #[cfg(target_os = "macos")]
-                "-Wl,-undefined,dynamic_lookup",
-            ])
-            .spawn()
-            .map_err(|e| e.to_string())?
-            .wait()
-            .map_err(|e| e.to_string())?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("LLVM compilation failed with status {status}"))
-        }?;
+        unsafe {
+            let jit_fn = engine
+                .get_function::<unsafe extern "C" fn() -> i32>(&lib_name)
+                .map_err(|e| e.to_string())?;
+            let ret_val = jit_fn.call();
+            if ret_val != 0 {
+                return Err(format!("JIT function {lib_name} returns {ret_val}"));
+            }
+        }
 
-        let lib = load_binary_library(&lib_full_name)?;
-        add_package(lib, &lib_name)
+        let engine: ExecutionEngine<'static> = unsafe { std::mem::transmute(engine) };
+        JIT_ENGINES.lock().unwrap().push(JitHolder {
+            _context: context,
+            _engine: engine,
+        });
+
+        let mut runtime = RT.write().unwrap();
+        runtime.add_package(lib_name, PackageHandle::Jit);
+        Ok(())
     }
 }

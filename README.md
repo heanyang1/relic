@@ -13,7 +13,7 @@ Relic (Rust-Enabled LIsp Compiler [^note1]) is a minimal, self-contained Lisp sy
 - Two compilation backends: C (via GCC) and LLVM (via inkwell/clang), selectable with `--backend`
 - It contains a REPL and a debugger that JIT compiles code
 - It has a simple package system. You can wrap C code as Relic package (and vice versa)
-- It has less than 4k lines of Rust code [^note2]
+- It has less than ~~4k~~5k lines of Rust code [^note2]
 
 More features of Scheme will be added as long as the feature does not add too much complexity to the system.
 
@@ -41,7 +41,7 @@ clang -Ic_runtime -o program program.c -Ltarget/debug -lrelic -Wl,-rpath,target/
 
 ### LLVM Backend
 
-The LLVM backend compiles Lisp code directly to LLVM IR using the [inkwell](https://crates.io/crates/inkwell) crate, then uses clang to produce a shared library:
+The LLVM backend compiles Lisp code directly to LLVM IR, then uses clang to produce a shared library:
 
 ```sh
 # Lisp -> LLVM IR
@@ -93,6 +93,7 @@ cd c_runtime
   - [RustyLine](https://crates.io/crates/rustyline) for navigation and auto-completion in the REPL and debugger.
   - [clap](https://crates.io/crates/clap) simplifies CLI argument parsing.
   - [Colored](https://crates.io/crates/colored) adds color to the program.
+  - [inkwell](https://crates.io/crates/inkwell) for anything related to LLVM.
 
 ## License
 
