@@ -156,6 +156,16 @@ cargo build -j 1   # Sequential if parallel issues
 6. Closures compile to separate LLVM functions (`func_{id}`) within the same module
 7. Use `assert_eval_node_dual!` / `assert_eval_text_dual!` in tests to verify both backends produce identical results
 
+### Fuzz Testing Both Backends
+Run the Python fuzzer to compare C and LLVM backends on random Lisp expressions:
+```bash
+python3 scripts/fuzz_backends.py            # 2000 random tests
+python3 scripts/fuzz_backends.py -n 5000    # More coverage
+python3 scripts/fuzz_backends.py --seed 42  # Reproducible
+```
+The fuzzer always uses `--jobs 1` by default because Relic's JIT temp file naming
+(process-local atomics) races under parallel invocations.
+
 ## Notes
 - The project uses Rust edition 2024 (experimental)
 - C code generation output requires linking with `librelic.so`
