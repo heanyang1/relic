@@ -27,13 +27,14 @@ use rustyline::{Editor, error::ReadlineError};
 use relic::{
     RT,
     compile::{CodeGen, compile},
+    compile_llvm::{self, LlvmCodeGen},
     env::Env,
     error::ParseError,
     lexer::LexerMonad,
     logger::{LogLevel, log_debug, log_error, set_log_level},
     package::file_to_node,
     preprocess::PreProcess,
-    rt_start, run_node,
+    rt_start, run_node, run_node_llvm,
     runtime::{DbgState, Runtime, StackMachine},
     unwrap_result,
 };
@@ -112,6 +113,15 @@ enum Mode {
     Debug,
 }
 
+/// Compilation backend.
+#[derive(Debug, Clone, ValueEnum)]
+enum Backend {
+    /// Generate C code (default).
+    C,
+    /// Generate LLVM IR code.
+    Llvm,
+}
+
 /// Command-line arguments for Relic.
 #[derive(Parser)]
 struct Cli {
@@ -140,6 +150,10 @@ struct Cli {
     /// Whether to add debug information when compiling.
     #[arg(short = 'g')]
     debug_info: bool,
+
+    /// Compilation backend to use.
+    #[arg(long, value_enum, default_value = "c")]
+    backend: Backend,
 }
 
 /// Debugger command loop.
@@ -238,10 +252,11 @@ fn main() {
         Mode::Run => {
             rt_start();
             if let Some(node) = input_node {
-                println!(
-                    "result: {}",
-                    unwrap_result(run_node(node), &mut RT.write().unwrap())
-                );
+                let result = match cli.backend {
+                    Backend::Llvm => unwrap_result(run_node_llvm(node), &mut RT.write().unwrap()),
+                    Backend::C => unwrap_result(run_node(node), &mut RT.write().unwrap()),
+                };
+                println!("result: {result}");
             } else {
                 eprintln!("No files to run");
             }
@@ -250,10 +265,11 @@ fn main() {
             rt_start();
 
             if let Some(node) = input_node {
-                println!(
-                    "result: {}",
-                    unwrap_result(run_node(node), &mut RT.write().unwrap())
-                );
+                let result = match cli.backend {
+                    Backend::Llvm => unwrap_result(run_node_llvm(node), &mut RT.write().unwrap()),
+                    Backend::C => unwrap_result(run_node(node), &mut RT.write().unwrap()),
+                };
+                println!("result: {result}");
             }
 
             // Gather autocomplete candidates from SYMBOLS and SPECIAL_FORMS
@@ -301,8 +317,12 @@ fn main() {
                         // Try to parse the input
                         match LexerMonad::new_unnamed(input_buffer.clone()).parse() {
                             Ok(node) => {
-                                // Successful parse, execute and clear buffer
-                                match node.preprocess(&mut macros).and_then(run_node) {
+                                let backend = cli.backend.clone();
+                                let exec_fn = move |n| match backend {
+                                    Backend::Llvm => run_node_llvm(n),
+                                    Backend::C => run_node(n),
+                                };
+                                match node.preprocess(&mut macros).and_then(exec_fn) {
                                     Ok(result) => {
                                         println!("= {result}");
                                         rl.add_history_entry(input_buffer.trim()).unwrap();
@@ -344,13 +364,13 @@ fn main() {
             // Save command history
             rl.save_history(".relic_history").unwrap();
         }
-        Mode::Compile => {
-            let mut codegen = match cli.package_name {
-                Some(name) => CodeGen::new_library(name),
-                None => CodeGen::new_main(),
-            };
-            match input_node {
-                Some(node) => {
+        Mode::Compile => match input_node {
+            Some(node) => match cli.backend {
+                Backend::C => {
+                    let mut codegen = match cli.package_name {
+                        Some(name) => CodeGen::new_library(name),
+                        None => CodeGen::new_main(),
+                    };
                     unwrap_result(
                         compile(&node, &mut codegen, cli.debug_info),
                         &mut RT.write().unwrap(),
@@ -367,11 +387,33 @@ fn main() {
                         }
                     }
                 }
-                None => {
-                    eprintln!("No files to compile");
+                Backend::Llvm => {
+                    let context = inkwell::context::Context::create();
+                    let mut codegen = match cli.package_name {
+                        Some(name) => LlvmCodeGen::new_library(&context, name),
+                        None => LlvmCodeGen::new_main(&context),
+                    };
+                    unwrap_result(
+                        compile_llvm::compile_llvm(&node, &mut codegen, cli.debug_info),
+                        &mut RT.write().unwrap(),
+                    );
+                    codegen.finalize();
+                    match cli.output_path {
+                        Some(output_path) => {
+                            codegen
+                                .write_to_file(output_path.to_str().unwrap())
+                                .unwrap();
+                        }
+                        None => {
+                            println!("{codegen}");
+                        }
+                    }
                 }
+            },
+            None => {
+                eprintln!("No files to compile");
             }
-        }
+        },
         Mode::Debug => match input_node {
             Some(node) => {
                 rt_start();
@@ -381,7 +423,12 @@ fn main() {
                     runtime.set_callback(dbg_loop);
                     runtime.begin_debug();
                 }
-                unwrap_result(node.jit_compile(true), &mut RT.write().unwrap());
+                match cli.backend {
+                    Backend::Llvm => {
+                        unwrap_result(node.jit_compile_llvm(true), &mut RT.write().unwrap())
+                    }
+                    Backend::C => unwrap_result(node.jit_compile(true), &mut RT.write().unwrap()),
+                }
                 let mut runtime = RT.write().unwrap();
                 let index = runtime.pop();
                 println!("result: {}", runtime.display_node_idx(index))

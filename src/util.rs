@@ -218,22 +218,14 @@ pub fn max<T>(a: T, b: T) -> T
 where
     T: PartialOrd,
 {
-    if a >= b {
-        a
-    } else {
-        b
-    }
+    if a >= b { a } else { b }
 }
 /// Returns the minimum of two values.
 pub fn min<T>(a: T, b: T) -> T
 where
     T: PartialOrd,
 {
-    if a <= b {
-        a
-    } else {
-        b
-    }
+    if a <= b { a } else { b }
 }
 /// Computes the union of two intervals.
 ///

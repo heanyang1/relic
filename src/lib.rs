@@ -1,9 +1,9 @@
-//! Relic - A minimal Lisp system written in Rust that compiles to C.
+//! Relic - A minimal Lisp system written in Rust that compiles to C and LLVM IR.
 //!
 //! This crate provides:
 //! - A Lisp lexer and parser
 //! - A runtime with garbage collection
-//! - A compiler that generates C code
+//! - Two compilation backends (C and LLVM IR) that share the same runtime
 //! - FFI bindings for C integration
 //!
 //! ## Core Modules
@@ -12,9 +12,11 @@
 //! - [`parser`]: Parsing Lisp expressions
 //! - [`runtime`]: Runtime environment with GC
 //! - [`compile`]: Compilation to C
+//! - [`compile_llvm`]: Compilation to LLVM IR
 //! - [`node`]: AST node definitions
 
 pub mod compile;
+pub mod compile_llvm;
 pub mod env;
 pub mod error;
 pub mod lexer;
@@ -83,6 +85,26 @@ where
 /// A string representation of the result, or an error message
 pub fn run_node(node: LexerMonad<Node>) -> Result<String, String> {
     node.jit_compile(false)?;
+    let mut runtime = RT.write().unwrap();
+    let index = runtime.pop();
+    Ok(runtime.display_node_idx(index))
+}
+
+/// Runs a parsed node using LLVM JIT compilation.
+///
+/// This function compiles the given node using the LLVM backend and returns
+/// the result as a string. Both backends share the same runtime and produce
+/// identical results.
+///
+/// # Parameters
+///
+/// * `node` - The parsed AST node to execute
+///
+/// # Returns
+///
+/// A string representation of the result, or an error message
+pub fn run_node_llvm(node: LexerMonad<Node>) -> Result<String, String> {
+    node.jit_compile_llvm(false)?;
     let mut runtime = RT.write().unwrap();
     let index = runtime.pop();
     Ok(runtime.display_node_idx(index))
@@ -495,11 +517,7 @@ pub extern "C" fn rt_get_bool(index: usize) -> i32 {
 pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
     let mut rt = RT.write().unwrap();
     rt.api_called(format!("rt_is_symbol({index})"));
-    if rt.get_symbol(index).is_ok() {
-        1
-    } else {
-        0
-    }
+    if rt.get_symbol(index).is_ok() { 1 } else { 0 }
 }
 
 /// Import a package.

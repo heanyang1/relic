@@ -119,141 +119,156 @@ macro_rules! assert_eval_text {
     }};
 
     ($code:expr, $expected:expr, $macros:expr) => {{
-        let mut tokens = Lexer::new($code);
-        let mut node = Node::parse(&mut tokens).unwrap();
+        let tokens = LexerMonad::new_unnamed($code);
+        let mut node = tokens.parse().unwrap();
         node = node.preprocess(&mut $macros).unwrap();
 
         node.jit_compile(true).unwrap();
         let index = rt_pop();
-        let actual = RT.lock().unwrap().display_node_idx(index);
-        assert_eq!(actual, $expected)
+        let actual = RT.read().unwrap().display_node_idx(index);
+        assert_eq!(actual, $expected);
     }};
 }
 
-#[test]
-#[serial]
-fn test_cycle_eval() {
-    rt_start();
-    assert_eval_text!(
-        "(define (last-pair x) (if (eq? (cdr x) '()) x (last-pair (cdr x))))",
-        "()"
-    );
-    assert_eval_text!(
-        "(define (make-cycle x) (define y (last-pair x)) (set-car! y x) x)",
-        "()"
-    );
-    assert_eval_text!("(define z (make-cycle (list 'a 'b 'c)))", "()");
-    assert_eval_text!("z", "(a b #0#)");
-    assert_eval_text!(
-        "(define (make-cycle2 x) (define y (last-pair x)) (set-cdr! y x) x)",
-        "()"
-    );
-    assert_eval_text!("(define z2 (make-cycle2 (list 'a 'b 'c)))", "()");
-    assert_eval_text!("z2", "(a b c . #0#)");
-    let mut runtime = RT.write().unwrap();
-    runtime.clear();
+macro_rules! assert_eval_node_dual {
+    ($code:expr, $expected:expr) => {{
+        let mut macros = HashMap::new();
+        let tokens = LexerMonad::new_unnamed($code);
+        let mut node = tokens.parse().unwrap();
+        node = node.preprocess(&mut macros).unwrap();
+
+        node.jit_compile(true).unwrap();
+        let expected = {
+            {
+                let mut runtime = RT.write().unwrap();
+                runtime.new_node_with_gc($expected)
+            }
+        };
+        let c_index = rt_pop();
+        assert!(
+            RT.read().unwrap().node_eq(c_index, expected),
+            "C backend: {} != expected",
+            stringify!($code)
+        );
+
+        let mut macros2 = HashMap::new();
+        let tokens2 = LexerMonad::new_unnamed($code);
+        let mut node2 = tokens2.parse().unwrap();
+        node2 = node2.preprocess(&mut macros2).unwrap();
+        node2.jit_compile_llvm(true).unwrap();
+        let expected2 = {
+            {
+                let mut runtime = RT.write().unwrap();
+                runtime.new_node_with_gc($expected)
+            }
+        };
+        let llvm_index = rt_pop();
+        assert!(
+            RT.read().unwrap().node_eq(llvm_index, expected2),
+            "LLVM backend: {}",
+            stringify!($code)
+        );
+    }};
+
+    ($code:expr, $expected:expr, $macros:expr) => {{
+        let tokens = LexerMonad::new_unnamed($code);
+        let mut node = tokens.parse().unwrap();
+        node = node.preprocess(&mut $macros).unwrap();
+
+        node.jit_compile(true).unwrap();
+        let expected = {
+            {
+                let mut runtime = RT.write().unwrap();
+                runtime.new_node_with_gc($expected)
+            }
+        };
+        let c_index = rt_pop();
+        assert!(
+            RT.read().unwrap().node_eq(c_index, expected),
+            "C backend: {} != expected",
+            stringify!($code)
+        );
+
+        let tokens2 = LexerMonad::new_unnamed($code);
+        let mut node2 = tokens2.parse().unwrap();
+        node2 = node2.preprocess(&mut $macros).unwrap();
+        node2.jit_compile_llvm(true).unwrap();
+        let expected2 = {
+            {
+                let mut runtime = RT.write().unwrap();
+                runtime.new_node_with_gc($expected)
+            }
+        };
+        let llvm_index = rt_pop();
+        assert!(
+            RT.read().unwrap().node_eq(llvm_index, expected2),
+            "LLVM backend: {}",
+            stringify!($code)
+        );
+    }};
 }
 
-#[test]
-#[serial]
-fn test_set_car_eval() {
-    rt_start();
-    assert_eval_text!("(define x '(1 2 3))", "()");
-    assert_eval_text!("(set-car! x 4)", "()");
-    assert_eval_text!("x", "(4 2 3)");
-    let mut runtime = RT.write().unwrap();
-    runtime.clear();
-}
+macro_rules! assert_eval_text_dual {
+    ($code:expr, $expected:expr) => {{
+        let mut macros = HashMap::new();
+        let tokens = LexerMonad::new_unnamed($code);
+        let mut node = tokens.parse().unwrap();
+        node = node.preprocess(&mut macros).unwrap();
 
-#[test]
-#[serial]
-fn test_set_cdr_eval() {
-    rt_start();
-    assert_eval_text!("(define x '(1 2 3))", "()");
-    assert_eval_text!("(set-cdr! x '(4 5 6))", "()");
-    assert_eval_text!("x", "(1 4 5 6)");
-    let mut runtime = RT.write().unwrap();
-    runtime.clear();
-}
+        node.jit_compile(true).unwrap();
+        let c_index = rt_pop();
+        let c_actual = RT.read().unwrap().display_node_idx(c_index);
+        assert_eq!(c_actual, $expected, "C backend: {}", stringify!($code));
 
-#[test]
-#[serial]
-fn test_fact_eval() {
-    rt_start();
-    assert_eval_node!(
-        "(define fact (lambda (n acc) (cond ((< n 2) acc) ('t (fact (- n 1) (* n acc))))))",
-        RuntimeNode::Symbol(Symbol::Nil)
-    );
-    assert_eval_node!("(define x (fact 5 1))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("x", RuntimeNode::Number(Number::Int(120)));
-    let mut runtime = RT.write().unwrap();
-    runtime.clear();
-}
+        let mut macros2 = HashMap::new();
+        let tokens2 = LexerMonad::new_unnamed($code);
+        let mut node2 = tokens2.parse().unwrap();
+        node2 = node2.preprocess(&mut macros2).unwrap();
+        node2.jit_compile_llvm(true).unwrap();
+        let llvm_index = rt_pop();
+        let llvm_actual = RT.read().unwrap().display_node_idx(llvm_index);
+        assert_eq!(
+            llvm_actual,
+            $expected,
+            "LLVM backend: {} produced '{}', expected '{}'",
+            stringify!($code),
+            llvm_actual,
+            $expected
+        );
+    }};
 
-#[test]
-#[serial]
-fn test_or_eval() {
-    rt_start();
-    assert_eval_node!("(define x1 (or))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(define x2 (or '() 2 3))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(define x3 (or 1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_text!("x1", "()");
-    assert_eval_text!("x2", "2");
-    assert_eval_text!("x3", "1");
-    let mut runtime = RT.write().unwrap();
-    runtime.clear();
-}
+    ($code:expr, $expected:expr, $macros:expr) => {{
+        let tokens = LexerMonad::new_unnamed($code);
+        let mut node = tokens.parse().unwrap();
+        node = node.preprocess(&mut $macros).unwrap();
 
-#[test]
-#[serial]
-fn test_and_eval() {
-    rt_start();
-    assert_eval_node!("(define x1 (and))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!(
-        "(define x2 (and '() 2 3))",
-        RuntimeNode::Symbol(Symbol::Nil)
-    );
-    assert_eval_node!("(define x3 (and 1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_text!("x1", "t");
-    assert_eval_text!("x2", "()");
-    assert_eval_text!("x3", "3");
-    let mut runtime = RT.write().unwrap();
-    runtime.clear();
-}
+        node.jit_compile(true).unwrap();
+        let c_index = rt_pop();
+        let c_actual = RT.read().unwrap().display_node_idx(c_index);
+        assert_eq!(c_actual, $expected, "C backend: {}", stringify!($code));
 
-#[test]
-#[serial]
-fn test_cond_eval() {
-    rt_start();
-    assert_eval_node!(
-        "(define x1 (cond ((< 1 2) 1) ((> 1 2) 2)))",
-        RuntimeNode::Symbol(Symbol::Nil)
-    );
-    assert_eval_node!(
-        "(define x2 (cond ((> 1 2) 1) ((< 1 2) 2)))",
-        RuntimeNode::Symbol(Symbol::Nil)
-    );
-    assert_eval_node!(
-        "(define x3 (cond ((> 1 2) 1)))",
-        RuntimeNode::Symbol(Symbol::Nil)
-    );
-    assert_eval_node!(
-        "(define x4 (cond ((> 1 2) 1) ((> 1 2) 2)))",
-        RuntimeNode::Symbol(Symbol::Nil)
-    );
-    assert_eval_text!("x1", "1");
-    assert_eval_text!("x2", "2");
-    assert_eval_text!("x3", "()");
-    assert_eval_text!("x4", "()");
-    let mut runtime = RT.write().unwrap();
-    runtime.clear();
+        let tokens2 = LexerMonad::new_unnamed($code);
+        let mut node2 = tokens2.parse().unwrap();
+        node2 = node2.preprocess(&mut $macros).unwrap();
+        node2.jit_compile_llvm(true).unwrap();
+        let llvm_index = rt_pop();
+        let llvm_actual = RT.read().unwrap().display_node_idx(llvm_index);
+        assert_eq!(
+            llvm_actual,
+            $expected,
+            "LLVM backend: {} produced '{}', expected '{}'",
+            stringify!($code),
+            llvm_actual,
+            $expected
+        );
+    }};
 }
 
 #[test]
 #[serial]
 fn test_simple_expr_eval() {
     rt_start();
-    assert_eval_text!("(+ (* 1 2 3) (/ 3 4))", "6.75");
+    assert_eval_text_dual!("(+ (* 1 2 3) (/ 3 4))", "6.75");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -262,7 +277,7 @@ fn test_simple_expr_eval() {
 #[serial]
 fn test_simple_lambda_eval() {
     rt_start();
-    assert_eval_text!("((lambda (x y z) (- x ((lambda (x) z) y))) 3 4 1)", "2");
+    assert_eval_text_dual!("((lambda (x y z) (- x ((lambda (x) z) y))) 3 4 1)", "2");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -271,28 +286,28 @@ fn test_simple_lambda_eval() {
 #[serial]
 fn test_lambda_pattern_matching_eval() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define f (lambda x (car x)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(define (g . x) (car x))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!(
+    assert_eval_node_dual!("(define (g . x) (car x))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!(
         "(define h (lambda (x . y) (car y)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define x1 (f 'a 'b 3 4))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(define x2 (g 2 3 4))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(define x3 (h 1 2 3 4))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(define x4 (h 1 2))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(define x5 (h 1 't))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_text!("x1", "a");
-    assert_eval_text!("x2", "2");
-    assert_eval_text!("x3", "2");
-    assert_eval_text!("x4", "2");
-    assert_eval_text!("x5", "t");
+    assert_eval_node_dual!("(define x2 (g 2 3 4))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(define x3 (h 1 2 3 4))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(define x4 (h 1 2))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(define x5 (h 1 't))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_text_dual!("x1", "a");
+    assert_eval_text_dual!("x2", "2");
+    assert_eval_text_dual!("x3", "2");
+    assert_eval_text_dual!("x4", "2");
+    assert_eval_text_dual!("x5", "t");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -301,8 +316,8 @@ fn test_lambda_pattern_matching_eval() {
 #[serial]
 fn test_let_eval() {
     rt_start();
-    assert_eval_text!("(let ((x 1) (y 2)) (+ x y))", "3");
-    assert_eval_node!(
+    assert_eval_text_dual!("(let ((x 1) (y 2)) (+ x y))", "3");
+    assert_eval_node_dual!(
         "(let ((x 1) (y 2)) (define z (+ x y)) z)",
         RuntimeNode::Number(Number::Int(3))
     );
@@ -314,17 +329,17 @@ fn test_let_eval() {
 #[serial]
 fn test_set_eval() {
     rt_start();
-    assert_eval_node!("(define x 1)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(define x1 x)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(set! x 2)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(define x2 x)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!(
+    assert_eval_node_dual!("(define x 1)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(define x1 x)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(set! x 2)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(define x2 x)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!(
         "((lambda (a) (set! x a)) 3)",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("x", RuntimeNode::Number(Number::Int(3)));
-    assert_eval_node!("x1", RuntimeNode::Number(Number::Int(1)));
-    assert_eval_node!("x2", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("x", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node_dual!("x1", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_node_dual!("x2", RuntimeNode::Number(Number::Int(2)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -333,19 +348,19 @@ fn test_set_eval() {
 #[serial]
 fn test_fib_eval() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (fib x) (if (< x 2) x (+ (fib (- x 1)) (fib (- x 2)))))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define map (lambda (func l) (cond ((eq? l '()) '()) ('t (cons (func (car l)) (map func (cdr l)))))))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define z (map fib '(0 1 2 3 4 5 6 7 8 9 10)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_text!("z", "(0 1 1 2 3 5 8 13 21 34 55)");
+    assert_eval_text_dual!("z", "(0 1 1 2 3 5 8 13 21 34 55)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -354,19 +369,19 @@ fn test_fib_eval() {
 #[serial]
 fn test_reverse_eval() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (aux lst acc) (if (eq? lst '()) acc (aux (cdr lst) (cons (car lst) acc))))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (reverse lst) (aux lst '()))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define z (reverse '(1 2 3 4 5 6 7 8 9 10)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_text!("z", "(10 9 8 7 6 5 4 3 2 1)");
+    assert_eval_text_dual!("z", "(10 9 8 7 6 5 4 3 2 1)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -375,15 +390,15 @@ fn test_reverse_eval() {
 #[serial]
 fn test_reverse_2_eval() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (reverse x) (define (loop x y) (cond ((eq? x '()) y) ('t (define temp (cdr x)) (set-cdr! x y) (loop temp x)))) (loop x '()))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define z (reverse '(1 2 3 4 5 6 7 8 9 10)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_text!("z", "(10 9 8 7 6 5 4 3 2 1)");
+    assert_eval_text_dual!("z", "(10 9 8 7 6 5 4 3 2 1)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -392,28 +407,28 @@ fn test_reverse_2_eval() {
 #[serial]
 fn test_sqrt_eval() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (sqrt-iter guess x) (if (good-enough? guess x) guess (sqrt-iter (improve guess x) x)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (improve guess x) (average guess (/ x guess)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (average x y) (/ (+ x y) 2))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (good-enough? guess x) (< (abs (- (* guess guess) x)) 0.001))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (sqrt x) (sqrt-iter 1.0 x))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(define z (sqrt 2))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("z", RuntimeNode::Number(Number::Float(1.4142156862745097)));
+    assert_eval_node_dual!("(define z (sqrt 2))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("z", RuntimeNode::Number(Number::Float(1.4142156862745097)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -422,41 +437,41 @@ fn test_sqrt_eval() {
 #[serial]
 fn test_primitive() {
     rt_start();
-    assert_eval_node!("42", RuntimeNode::Number(Number::Int(42)));
-    assert_eval_node!("4.2", RuntimeNode::Number(Number::Float(4.2)));
-    assert_eval_node!(
+    assert_eval_node_dual!("42", RuntimeNode::Number(Number::Int(42)));
+    assert_eval_node_dual!("4.2", RuntimeNode::Number(Number::Float(4.2)));
+    assert_eval_node_dual!(
         "\"hello  \"",
         RuntimeNode::Symbol(Symbol::User("hello  ".to_string()))
     );
-
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
+
 #[test]
 #[serial]
 fn test_simple_arithmetic() {
     rt_start();
-    assert_eval_node!("(+ 1 2 3 4)", RuntimeNode::Number(Number::Int(10)));
-    assert_eval_node!("(- 3 2 1)", RuntimeNode::Number(Number::Int(0)));
-    assert_eval_node!("(remainder 10 3)", RuntimeNode::Number(Number::Int(1)));
-    assert_eval_node!("(quotient 20 3)", RuntimeNode::Number(Number::Int(6)));
-    assert_eval_node!("(floor 2.5)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(ceiling 2.5)", RuntimeNode::Number(Number::Int(3)));
-    assert_eval_node!("(sin 0)", RuntimeNode::Number(Number::Float(0.0)));
-    assert_eval_node!("(cos 0)", RuntimeNode::Number(Number::Float(1.0)));
-    assert_eval_node!("(abs 2)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(abs -2)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(abs 2.0)", RuntimeNode::Number(Number::Float(2.0)));
-    assert_eval_node!("(abs -2.0)", RuntimeNode::Number(Number::Float(2.0)));
-    assert_eval_node!("(* 2 3)", RuntimeNode::Number(Number::Int(6)));
-    assert_eval_node!("(/ 6 3)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(/ 5 2)", RuntimeNode::Number(Number::Float(2.5)));
-    assert_eval_node!("(+ 1.0 2.0 3)", RuntimeNode::Number(Number::Float(6.0)));
-    assert_eval_node!("(- 3.0 2.0)", RuntimeNode::Number(Number::Float(1.0)));
-    assert_eval_node!("(* 2.0 3.0)", RuntimeNode::Number(Number::Float(6.0)));
-    assert_eval_node!("(/ 6.0 3.0)", RuntimeNode::Number(Number::Float(2.0)));
-    assert_eval_node!("(+ 1 2.0)", RuntimeNode::Number(Number::Float(3.0)));
-    assert_eval_node!("(- 3.0 2)", RuntimeNode::Number(Number::Float(1.0)));
+    assert_eval_node_dual!("(+ 1 2 3 4)", RuntimeNode::Number(Number::Int(10)));
+    assert_eval_node_dual!("(- 3 2 1)", RuntimeNode::Number(Number::Int(0)));
+    assert_eval_node_dual!("(remainder 10 3)", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_node_dual!("(quotient 20 3)", RuntimeNode::Number(Number::Int(6)));
+    assert_eval_node_dual!("(floor 2.5)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(ceiling 2.5)", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node_dual!("(sin 0)", RuntimeNode::Number(Number::Float(0.0)));
+    assert_eval_node_dual!("(cos 0)", RuntimeNode::Number(Number::Float(1.0)));
+    assert_eval_node_dual!("(abs 2)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(abs -2)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(abs 2.0)", RuntimeNode::Number(Number::Float(2.0)));
+    assert_eval_node_dual!("(abs -2.0)", RuntimeNode::Number(Number::Float(2.0)));
+    assert_eval_node_dual!("(* 2 3)", RuntimeNode::Number(Number::Int(6)));
+    assert_eval_node_dual!("(/ 6 3)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(/ 5 2)", RuntimeNode::Number(Number::Float(2.5)));
+    assert_eval_node_dual!("(+ 1.0 2.0 3)", RuntimeNode::Number(Number::Float(6.0)));
+    assert_eval_node_dual!("(- 3.0 2.0)", RuntimeNode::Number(Number::Float(1.0)));
+    assert_eval_node_dual!("(* 2.0 3.0)", RuntimeNode::Number(Number::Float(6.0)));
+    assert_eval_node_dual!("(/ 6.0 3.0)", RuntimeNode::Number(Number::Float(2.0)));
+    assert_eval_node_dual!("(+ 1 2.0)", RuntimeNode::Number(Number::Float(3.0)));
+    assert_eval_node_dual!("(- 3.0 2)", RuntimeNode::Number(Number::Float(1.0)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -465,10 +480,10 @@ fn test_simple_arithmetic() {
 #[serial]
 fn test_with_symbol() {
     rt_start();
-    assert_eval_node!("(define x 2)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(- x 2)", RuntimeNode::Number(Number::Int(0)));
-    assert_eval_node!("(* 3 x)", RuntimeNode::Number(Number::Int(6)));
-    assert_eval_node!("(/ 6 x)", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node_dual!("(define x 2)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(- x 2)", RuntimeNode::Number(Number::Int(0)));
+    assert_eval_node_dual!("(* 3 x)", RuntimeNode::Number(Number::Int(6)));
+    assert_eval_node_dual!("(/ 6 x)", RuntimeNode::Number(Number::Int(3)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -477,8 +492,8 @@ fn test_with_symbol() {
 #[serial]
 fn test_nested_arithmetic() {
     rt_start();
-    assert_eval_node!("(+ (- 1 2) 3)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!(
+    assert_eval_node_dual!("(+ (- 1 2) 3)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!(
         "(* (/ 1 2) (+ 3 4))",
         RuntimeNode::Number(Number::Float(3.5))
     );
@@ -490,17 +505,17 @@ fn test_nested_arithmetic() {
 #[serial]
 fn test_relational_operators() {
     rt_start();
-    assert_eval_node!("t", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(< 1.0 2)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(< 2 1)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(> 1 2.0)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(> (+ 1 1) 1)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(<= 1 1.0)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(<= 1.0 2)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(<= 2 1)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(>= 1 1)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(>= 1 2)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(>= 2 1)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("t", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(< 1.0 2)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(< 2 1)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(> 1 2.0)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(> (+ 1 1) 1)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(<= 1 1.0)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(<= 1.0 2)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(<= 2 1)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(>= 1 1)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(>= 1 2)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(>= 2 1)", RuntimeNode::Symbol(Symbol::T));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -509,10 +524,10 @@ fn test_relational_operators() {
 #[serial]
 fn test_toplevel_symbol() {
     rt_start();
-    assert_eval_node!("+", RuntimeNode::Symbol(Symbol::Add));
-    assert_eval_node!("-", RuntimeNode::Symbol(Symbol::Sub));
-    assert_eval_node!("*", RuntimeNode::Symbol(Symbol::Mul));
-    assert_eval_node!("/", RuntimeNode::Symbol(Symbol::Div));
+    assert_eval_node_dual!("+", RuntimeNode::Symbol(Symbol::Add));
+    assert_eval_node_dual!("-", RuntimeNode::Symbol(Symbol::Sub));
+    assert_eval_node_dual!("*", RuntimeNode::Symbol(Symbol::Mul));
+    assert_eval_node_dual!("/", RuntimeNode::Symbol(Symbol::Div));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -520,36 +535,45 @@ fn test_toplevel_symbol() {
 #[test]
 #[serial]
 fn test_list_simple() {
-    assert_eval_text!("'(1 2 3)", "(1 2 3)");
-    assert_eval_text!("(list 1 2 3)", "(1 2 3)");
-    assert_eval_text!("(list 1 2)", "(1 2)");
-    assert_eval_text!("(list (+ 1 0))", "(1)");
-    assert_eval_node!("(list)", RuntimeNode::Symbol(Symbol::Nil));
+    rt_start();
+    assert_eval_text_dual!("'(1 2 3)", "(1 2 3)");
+    assert_eval_text_dual!("(list 1 2 3)", "(1 2 3)");
+    assert_eval_text_dual!("(list 1 2)", "(1 2)");
+    assert_eval_text_dual!("(list (+ 1 0))", "(1)");
+    assert_eval_node_dual!("(list)", RuntimeNode::Symbol(Symbol::Nil));
+    let mut runtime = RT.write().unwrap();
+    runtime.clear();
 }
 
 #[test]
 #[serial]
 fn test_list_nested() {
-    assert_eval_text!("(list (list 1 2 3))", "((1 2 3))");
-    assert_eval_text!("(list 1 '(2 3) 4)", "(1 (2 3) 4)");
+    rt_start();
+    assert_eval_text_dual!("(list (list 1 2 3))", "((1 2 3))");
+    assert_eval_text_dual!("(list 1 '(2 3) 4)", "(1 (2 3) 4)");
+    let mut runtime = RT.write().unwrap();
+    runtime.clear();
 }
 
 #[test]
 #[serial]
 fn test_list_manipulation() {
-    assert_eval_node!("(car (list 1 2 3))", RuntimeNode::Number(Number::Int(1)));
-    assert_eval_text!("(cdr '(1 2 3))", "(2 3)");
-    assert_eval_text!("(cons 1 (list 2 3))", "(1 2 3)");
+    rt_start();
+    assert_eval_node_dual!("(car (list 1 2 3))", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_text_dual!("(cdr '(1 2 3))", "(2 3)");
+    assert_eval_text_dual!("(cons 1 (list 2 3))", "(1 2 3)");
+    let mut runtime = RT.write().unwrap();
+    runtime.clear();
 }
 
 #[test]
 #[serial]
 fn test_define() {
     rt_start();
-    assert_eval_node!("(define x 1)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(define y (+ x 1))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("x", RuntimeNode::Number(Number::Int(1)));
-    assert_eval_node!("y", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(define x 1)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(define y (+ x 1))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("x", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_node_dual!("y", RuntimeNode::Number(Number::Int(2)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -583,11 +607,11 @@ fn test_define_syntax_rule() {
 #[serial]
 fn test_lambda() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "((lambda (x) (+ x 1)) 2)",
         RuntimeNode::Number(Number::Int(3))
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "((lambda (x y) (+ x y)) 2 3)",
         RuntimeNode::Number(Number::Int(5))
     );
@@ -599,14 +623,14 @@ fn test_lambda() {
 #[serial]
 fn test_lambda_with_define() {
     rt_start();
-    assert_eval_node!("(define x 1)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("x", RuntimeNode::Number(Number::Int(1)));
-    assert_eval_node!(
+    assert_eval_node_dual!("(define x 1)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("x", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_node_dual!(
         "(define func (lambda (x) (+ x 1)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(func 2)", RuntimeNode::Number(Number::Int(3)));
-    assert_eval_node!("(func x)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(func 2)", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node_dual!("(func x)", RuntimeNode::Number(Number::Int(2)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -615,17 +639,17 @@ fn test_lambda_with_define() {
 #[serial]
 fn test_lambda_scope() {
     rt_start();
-    assert_eval_node!("(define (f) 1)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!(
+    assert_eval_node_dual!("(define (f) 1)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!(
         "(define (g) (define (f x) x) (f 2))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(g)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!(
+    assert_eval_node_dual!("(g)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!(
         "(define (h x) (define (f x) x) (f 2))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(h 1)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(h 1)", RuntimeNode::Number(Number::Int(2)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -634,34 +658,34 @@ fn test_lambda_scope() {
 #[serial]
 fn test_lambda_pattern_matching() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define f (lambda x (car x)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(f 'a 'b 3 4)",
         RuntimeNode::Symbol(Symbol::User("a".to_string()))
     );
 
-    assert_eval_node!("(define (g . x) (car x))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(g 2 3 4)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(define (g . x) (car x))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(g 2 3 4)", RuntimeNode::Number(Number::Int(2)));
 
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define (g x . y) (car (cdr y)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(g 2 3 4)", RuntimeNode::Number(Number::Int(4)));
+    assert_eval_node_dual!("(g 2 3 4)", RuntimeNode::Number(Number::Int(4)));
 
-    assert_eval_node!("(define (g x . y) y)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(g 2)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(define (g x . y) y)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(g 2)", RuntimeNode::Symbol(Symbol::Nil));
 
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define h (lambda (x . y) (car y)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(h 1 2 3 4)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(h 1 2)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(h 1 't)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(h 1 2 3 4)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(h 1 2)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(h 1 't)", RuntimeNode::Symbol(Symbol::T));
 
     let mut runtime = RT.write().unwrap();
     runtime.clear();
@@ -671,20 +695,20 @@ fn test_lambda_pattern_matching() {
 #[serial]
 fn test_function_call() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define g (lambda (x) (+ x 1)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define h (lambda (x) (g (+ x 1))))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(h 2)", RuntimeNode::Number(Number::Int(4)));
-    assert_eval_node!(
+    assert_eval_node_dual!("(h 2)", RuntimeNode::Number(Number::Int(4)));
+    assert_eval_node_dual!(
         "(define a (lambda (x) (car x)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(a '(1 2 3))", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_node_dual!("(a '(1 2 3))", RuntimeNode::Number(Number::Int(1)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -693,12 +717,11 @@ fn test_function_call() {
 #[serial]
 fn test_apply() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(define f (lambda (x y z) (+ x y)))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(apply f '(1 2 3))", RuntimeNode::Number(Number::Int(3)));
-
+    assert_eval_node_dual!("(apply f '(1 2 3))", RuntimeNode::Number(Number::Int(3)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -707,11 +730,11 @@ fn test_apply() {
 #[serial]
 fn test_atom() {
     rt_start();
-    assert_eval_node!("(atom? 1)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(atom? (+ 1 2))", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(atom? (list 1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(atom? 'a)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(atom? '())", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(atom? 1)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(atom? (+ 1 2))", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(atom? (list 1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(atom? 'a)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(atom? '())", RuntimeNode::Symbol(Symbol::T));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -720,13 +743,13 @@ fn test_atom() {
 #[serial]
 fn test_eq() {
     rt_start();
-    assert_eval_node!("(eq? 1 1)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(eq? (- 2 1) 1)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(eq? 1 2)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(eq? 'a 'a)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(eq? 'a 'b)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(eq? '() '())", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!(
+    assert_eval_node_dual!("(eq? 1 1)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(eq? (- 2 1) 1)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(eq? 1 2)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(eq? 'a 'a)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(eq? 'a 'b)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(eq? '() '())", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!(
         "(eq? '(1 2 3) (list 1 2 3))",
         RuntimeNode::Symbol(Symbol::T)
     );
@@ -738,11 +761,11 @@ fn test_eq() {
 #[serial]
 fn test_number() {
     rt_start();
-    assert_eval_node!("(number? 1)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(number? (+ 1 2))", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(number? 'a)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(number? '())", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(number? 'a)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(number? 1)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(number? (+ 1 2))", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(number? 'a)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(number? '())", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(number? 'a)", RuntimeNode::Symbol(Symbol::Nil));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -751,16 +774,16 @@ fn test_number() {
 #[serial]
 fn test_cond() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(cond ((< 1 2) 1) ((> 1 2) 2))",
         RuntimeNode::Number(Number::Int(1))
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(cond ((> 1 2) 1) ((< 1 2) 2))",
         RuntimeNode::Number(Number::Int(2))
     );
-    assert_eval_node!("(cond ((> 1 2) 1))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!(
+    assert_eval_node_dual!("(cond ((> 1 2) 1))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!(
         "(cond ((> 1 2) 1) ((> 1 2) 2))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
@@ -772,9 +795,26 @@ fn test_cond() {
 #[serial]
 fn test_and() {
     rt_start();
-    assert_eval_node!("(and)", RuntimeNode::Symbol(Symbol::T));
-    assert_eval_node!("(and '() 2 3)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(and 1 2 3)", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node_dual!("(and)", RuntimeNode::Symbol(Symbol::T));
+    assert_eval_node_dual!("(and '() 2 3)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(and 1 2 3)", RuntimeNode::Number(Number::Int(3)));
+    let mut runtime = RT.write().unwrap();
+    runtime.clear();
+}
+
+#[test]
+#[serial]
+fn test_and_eval() {
+    rt_start();
+    assert_eval_node_dual!("(define x1 (and))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!(
+        "(define x2 (and '() 2 3))",
+        RuntimeNode::Symbol(Symbol::Nil)
+    );
+    assert_eval_node_dual!("(define x3 (and 1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_text_dual!("x1", "t");
+    assert_eval_text_dual!("x2", "()");
+    assert_eval_text_dual!("x3", "3");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -783,9 +823,9 @@ fn test_and() {
 #[serial]
 fn test_or() {
     rt_start();
-    assert_eval_node!("(or)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(or '() 2 3)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(or 1 2 3)", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_node_dual!("(or)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(or '() 2 3)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(or 1 2 3)", RuntimeNode::Number(Number::Int(1)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -794,7 +834,7 @@ fn test_or() {
 #[serial]
 fn test_fact() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         r#"
 (define fact
   (lambda (n acc)
@@ -802,7 +842,7 @@ fn test_fact() {
           ('t (fact (- n 1) (* n acc))))))"#,
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(fact 5 1)", RuntimeNode::Number(Number::Int(120)));
+    assert_eval_node_dual!("(fact 5 1)", RuntimeNode::Number(Number::Int(120)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -811,19 +851,18 @@ fn test_fact() {
 #[serial]
 fn test_list_package() {
     rt_start();
-    assert_eval_node!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
-    // import twice should not break anything
-    assert_eval_node!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_text!(
+    assert_eval_node_dual!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_text_dual!(
         "(map (lambda (x) (+ x 1)) '(0 1 2 3 4 5 6 7 8 9))",
         "(1 2 3 4 5 6 7 8 9 10)"
     );
-    assert_eval_text!(
+    assert_eval_text_dual!(
         "(list-tail (map (lambda (x) (- x 1)) (iota 10 2 1)) 5)",
         "(6 7 8 9 10)"
     );
-    assert_eval_text!("(map + '(1 2 3) '(3 2 1) '(3 3 3))", "(7 7 7)");
-    assert_eval_text!("(append '((1 2) 3) '(4 5) '(6))", "((1 2) 3 4 5 6)");
+    assert_eval_text_dual!("(map + '(1 2 3) '(3 2 1) '(3 3 3))", "(7 7 7)");
+    assert_eval_text_dual!("(append '((1 2) 3) '(4 5) '(6))", "((1 2) 3 4 5 6)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -832,16 +871,16 @@ fn test_list_package() {
 #[serial]
 fn test_fib() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         r#"(define fib
            (lambda (n)
              (cond ((< n 2) 1)
                    ('t (+ (fib (- n 1)) (fib (- n 2)))))))"#,
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(fib 9)", RuntimeNode::Number(Number::Int(55)));
-    assert_eval_node!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_text!("(map fib (iota 10))", "(1 1 2 3 5 8 13 21 34 55)");
+    assert_eval_node_dual!("(fib 9)", RuntimeNode::Number(Number::Int(55)));
+    assert_eval_node_dual!("(import list)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_text_dual!("(map fib (iota 10))", "(1 1 2 3 5 8 13 21 34 55)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -850,15 +889,15 @@ fn test_fib() {
 #[serial]
 fn test_set() {
     rt_start();
-    assert_eval_node!("(define x 1)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("x", RuntimeNode::Number(Number::Int(1)));
-    assert_eval_node!("(set! x 2)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("x", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!(
+    assert_eval_node_dual!("(define x 1)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("x", RuntimeNode::Number(Number::Int(1)));
+    assert_eval_node_dual!("(set! x 2)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("x", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!(
         "((lambda (a) (set! x a)) 3)",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("x", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node_dual!("x", RuntimeNode::Number(Number::Int(3)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -867,9 +906,9 @@ fn test_set() {
 #[serial]
 fn test_set_car() {
     rt_start();
-    assert_eval_node!("(define x '(1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(set-car! x 4)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_text!("x", "(4 2 3)");
+    assert_eval_node_dual!("(define x '(1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(set-car! x 4)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_text_dual!("x", "(4 2 3)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -878,16 +917,16 @@ fn test_set_car() {
 #[serial]
 fn test_set_cdr() {
     rt_start();
-    assert_eval_node!("(define x '(1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(set-cdr! x '(4 5 6))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_text!("x", "(1 4 5 6)");
-    assert_eval_node!(
+    assert_eval_node_dual!("(define x '(1 2 3))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(set-cdr! x '(4 5 6))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_text_dual!("x", "(1 4 5 6)");
+    assert_eval_node_dual!(
         "(define (g x) (set-cdr! x 1))",
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!("(set! x (cons 2 3))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(g x)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_text!("x", "(2 . 1)");
+    assert_eval_node_dual!("(set! x (cons 2 3))", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_node_dual!("(g x)", RuntimeNode::Symbol(Symbol::Nil));
+    assert_eval_text_dual!("x", "(2 . 1)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -896,12 +935,12 @@ fn test_set_cdr() {
 #[serial]
 fn test_begin() {
     rt_start();
-    assert_eval_node!("(begin 1 2 3)", RuntimeNode::Number(Number::Int(3)));
-    assert_eval_node!(
+    assert_eval_node_dual!("(begin 1 2 3)", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node_dual!(
         "(begin (define x 1) (define y 2) x)",
         RuntimeNode::Number(Number::Int(1))
     );
-    assert_eval_node!("y", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("y", RuntimeNode::Number(Number::Int(2)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -910,11 +949,11 @@ fn test_begin() {
 #[serial]
 fn test_let() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(let ((x 1) (y 2)) (+ x y))",
         RuntimeNode::Number(Number::Int(3))
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         "(let ((x 1) (y 2)) (begin (define z (+ x y)) z))",
         RuntimeNode::Number(Number::Int(3))
     );
@@ -926,10 +965,10 @@ fn test_let() {
 #[serial]
 fn test_if() {
     rt_start();
-    assert_eval_node!("(if 1 2 3)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(if 0 2 3)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(if 't 2 3)", RuntimeNode::Number(Number::Int(2)));
-    assert_eval_node!("(if '() 2 3)", RuntimeNode::Number(Number::Int(3)));
+    assert_eval_node_dual!("(if 1 2 3)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(if 0 2 3)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(if 't 2 3)", RuntimeNode::Number(Number::Int(2)));
+    assert_eval_node_dual!("(if '() 2 3)", RuntimeNode::Number(Number::Int(3)));
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -938,7 +977,7 @@ fn test_if() {
 #[serial]
 fn test_reverse_list() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         r#"
 (define reverse
   (lambda (x)
@@ -955,7 +994,7 @@ fn test_reverse_list() {
       (loop x '()))))"#,
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         r#"
 (define (reverse-sugar x)
   (define (loop x y)
@@ -966,8 +1005,8 @@ fn test_reverse_list() {
   (loop x '()))"#,
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_text!("(reverse '(1 2 3 4))", "(4 3 2 1)");
-    assert_eval_text!("(reverse-sugar '(1 2 3 4))", "(4 3 2 1)");
+    assert_eval_text_dual!("(reverse '(1 2 3 4))", "(4 3 2 1)");
+    assert_eval_text_dual!("(reverse-sugar '(1 2 3 4))", "(4 3 2 1)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -1000,13 +1039,13 @@ fn test_delay() {
 #[serial]
 fn test_cycle() {
     rt_start();
-    assert_eval_node!(
+    assert_eval_node_dual!(
         r#"
 (define (last-pair x)
     (if (eq? (cdr x) '()) x (last-pair (cdr x))))"#,
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_node!(
+    assert_eval_node_dual!(
         r#"
 (define (make-cycle x)
     (define y (last-pair x))
@@ -1014,8 +1053,8 @@ fn test_cycle() {
     x)"#,
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_text!("(make-cycle (list 'a 'b 'c))", "(a b #0#)");
-    assert_eval_node!(
+    assert_eval_text_dual!("(make-cycle (list 'a 'b 'c))", "(a b #0#)");
+    assert_eval_node_dual!(
         r#"
 (define (make-cycle2 x)
     (define y (last-pair x))
@@ -1023,7 +1062,7 @@ fn test_cycle() {
     x)"#,
         RuntimeNode::Symbol(Symbol::Nil)
     );
-    assert_eval_text!("(make-cycle2 (list 'a 'b 'c))", "(a b c . #0#)");
+    assert_eval_text_dual!("(make-cycle2 (list 'a 'b 'c))", "(a b c . #0#)");
     let mut runtime = RT.write().unwrap();
     runtime.clear();
 }
@@ -1098,14 +1137,14 @@ fn test_run_monoidal() {
     assert!(out.status.success());
     assert_eq!(
         String::from_utf8(out.stdout).unwrap(),
-        r#"(() 2)
+        "(() 2)
 (t -2)
 (5)
 (-5)
 (6)
 (2 -13)
 (-1 7)result: ()
-"#
+"
     );
 }
 

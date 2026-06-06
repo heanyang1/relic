@@ -1,6 +1,6 @@
 # AGENTS.md - Relic Project Guidelines
 
-Relic (Rust-Enabled LIsp Compiler) is a minimal Lisp system written in Rust that compiles to C.
+Relic (Rust-Enabled LIsp Compiler) is a minimal Lisp system written in Rust that compiles to C and LLVM IR.
 
 ## Build, Lint, and Test Commands
 
@@ -9,7 +9,8 @@ Relic (Rust-Enabled LIsp Compiler) is a minimal Lisp system written in Rust that
 cargo build              # Build the project
 cargo build --release    # Release mode
 cargo run -- --help      # CLI help
-cargo run -- compile -i program.lisp -o program.c  # Compile to C
+cargo run -- compile -i program.lisp -o program.c         # Compile to C
+cargo run -- compile --backend llvm -i program.lisp -o program.ll  # Compile to LLVM IR
 ```
 
 ### Testing
@@ -104,7 +105,7 @@ pub extern "C" fn rt_get_integer(index: usize) -> i64 { ... }
 
 ```
 src/
-  lib.rs, main.rs, lexer.rs, parser.rs, compile.rs, runtime.rs
+  lib.rs, main.rs, lexer.rs, parser.rs, compile.rs, compile_llvm.rs, runtime.rs
   error.rs, env.rs, node.rs, symbol.rs, number.rs, package.rs
   preprocess.rs, logger.rs, util.rs
 tests/
@@ -113,7 +114,7 @@ tests/
 ```
 
 ## Key Dependencies
-`clap`, `rustyline`, `libloading`, `colored`, `serial_test`
+`clap`, `rustyline`, `libloading`, `colored`, `serial_test`, `inkwell`
 
 ## Runtime Access
 ```rust
@@ -143,8 +144,22 @@ cargo build -j 1   # Sequential if parallel issues
 - Use `-d` flag with `cargo run` for debug logging
 - Check `logger.rs` for available log levels: `log_debug`, `log_warning`, `log_error`
 - Use `rt_breakpoint()` in compiled code for debugger integration
+- To inspect generated LLVM IR, enable LLVM compilation and check `/tmp/relic/llvm_jit_*.ll`
+- Generated C files are at `/tmp/relic/jit_*.c`
+
+### Adding LLVM Backend Support for a New Feature
+1. If the feature affects code generation, update `src/compile.rs` (C backend) and `src/compile_llvm.rs` (LLVM backend)
+2. The LLVM backend uses `inkwell` to build LLVM IR in-memory, serializes to `.ll` file, then compiles with clang
+3. `LlvmCodeGen` mirrors `CodeGen` but generates LLVM IR instead of C strings
+4. All runtime API calls (`rt_push`, `rt_pop`, `rt_apply`, etc.) are declared as `declare` in the LLVM module
+5. String constants are deduplicated as global `@.str_N` arrays
+6. Closures compile to separate LLVM functions (`func_{id}`) within the same module
+7. Use `assert_eval_node_dual!` / `assert_eval_text_dual!` in tests to verify both backends produce identical results
 
 ## Notes
 - The project uses Rust edition 2024 (experimental)
 - C code generation output requires linking with `librelic.so`
-- The compiler generates C code, not standalone executables
+- LLVM IR generation requires LLVM 18 development libraries and clang
+- The `.cargo/config.toml` sets `LLVM_SYS_180_PREFIX` for the LLVM installation path
+- The compiler generates C code or LLVM IR, not standalone executables
+- Both backends share the same runtime and produce identical results

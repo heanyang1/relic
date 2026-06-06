@@ -66,7 +66,7 @@ use crate::{
     node::Node,
     number::Number,
     symbol::{SpecialForm, Symbol},
-    util::{get_n_params, inc, Vectorize},
+    util::{Vectorize, get_n_params, inc},
 };
 
 /// Type of code generators.
@@ -257,7 +257,7 @@ trait Compile {
     /// If `dbg_info` is true, a special statement will be inserted at the end
     /// of each evaluation to support `n` command in the debugger.
     fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo, dbg_info: bool)
-        -> Result<(), String>;
+    -> Result<(), String>;
 }
 
 impl Compile for Symbol {

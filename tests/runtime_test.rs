@@ -1,4 +1,3 @@
-
 use relic::{
     number::Number,
     runtime::{LoadToRuntime, Runtime, RuntimeNode, StackMachine},

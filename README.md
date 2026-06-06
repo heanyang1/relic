@@ -9,7 +9,8 @@ Relic (Rust-Enabled LIsp Compiler [^note1]) is a minimal, self-contained Lisp sy
 ## Features
 
 - It supports a small subset of R5RS that is sufficient to run most programs in [SICP](https://mitp-content-server.mit.edu/books/content/sectbyfn/books_pres_0/6515/sicp.zip/full-text/book/book.html) with minor modifications
-- Lisp code are compiled to C
+- Lisp code can be compiled to C or directly to LLVM IR
+- Two compilation backends: C (via GCC) and LLVM (via inkwell/clang), selectable with `--backend`
 - It contains a REPL and a debugger that JIT compiles code
 - It has a simple package system. You can wrap C code as Relic package (and vice versa)
 - It has less than 4k lines of Rust code [^note2]
@@ -20,11 +21,14 @@ More features of Scheme will be added as long as the feature does not add too mu
 
 ## Compile and Run
 
-Relic can only be run on a Unix-like OS that has C toolchain (and Rust, of course).
+Relic can only be run on a Unix-like OS that has C toolchain (and Rust, of course). For the LLVM backend, LLVM 18 and clang are also required.
 
 The REPL, the debugger and the compiler are all in the main executable. Run `cargo run -- --help` to see the usage.
 
-The compiler only compiles Lisp code to C code (unlike GCC or Clang). You need to compile and link the output C code:
+### C Backend (default)
+
+The C backend compiles Lisp code to C code, then uses GCC to produce a shared library:
+
 ```sh
 # Lisp -> C
 cargo run -- compile -i program.lisp -o program.c
@@ -34,6 +38,19 @@ clang -Ic_runtime -o program program.c -Ltarget/debug -lrelic -Wl,-rpath,target/
 # Run the program
 ./program
 ```
+
+### LLVM Backend
+
+The LLVM backend compiles Lisp code directly to LLVM IR using the [inkwell](https://crates.io/crates/inkwell) crate, then uses clang to produce a shared library:
+
+```sh
+# Lisp -> LLVM IR
+cargo run -- compile --backend llvm -i program.lisp -o program.ll
+# Or run directly with LLVM JIT
+cargo run -- run --backend llvm -i program.lisp
+```
+
+The `--backend` flag accepts `c` (default) or `llvm`. It works with all modes: `repl`, `run`, `compile`, and `debug`.
 
 See [the wiki](https://github.com/heanyang1/relic/wiki) for supported features and how to use Relic's package system.
 
@@ -54,8 +71,8 @@ cd c_runtime
 
 - [x] Runtime and JIT compiler
 - [x] Package system
+- [x] Compile to LLVM
 - [] Better error message
-- [] Compile to LLVM
 - [] Debug information and GDB/LLDB support
 - [] Better macros
 

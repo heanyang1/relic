@@ -4,6 +4,14 @@
 //! 1. Loading packages (both compiled `.relic` and source `.lisp` files)
 //! 2. JIT compilation from Lisp source to compiled shared library
 //!
+//! ## JIT Compilation Backends
+//!
+//! Two compilation backends are available:
+//! - [`jit_compile`] (C backend): Lisp → C → GCC → .relic → libloading
+//! - [`jit_compile_llvm`] (LLVM backend): Lisp → LLVM IR → Clang → .relic → libloading
+//!
+//! Both backends share the same runtime and produce identical results.
+//!
 //! ## Package Loading
 //!
 //! Packages can be loaded from two sources:
@@ -70,14 +78,15 @@ use std::{
 use libloading::{Library, Symbol};
 
 use crate::{
-    compile::{compile, CodeGen},
+    RT,
+    compile::{CodeGen, compile},
+    compile_llvm::{self, LlvmCodeGen},
     lexer::LexerMonad,
     node::Node,
     parser::new_pair,
     preprocess::{Macro, PreProcess},
     symbol::SpecialForm,
     util::inc,
-    RT,
 };
 
 /// Reads text from a file, parses and preprocesses it, then returns a node.
@@ -193,6 +202,45 @@ impl LexerMonad<Node> {
             Ok(())
         } else {
             Err(format!("compilation failed with status {status}"))
+        }?;
+
+        let lib = load_binary_library(&lib_full_name)?;
+        add_package(lib, &lib_name)
+    }
+
+    pub fn jit_compile_llvm(&self, debug_info: bool) -> Result<(), String> {
+        std::fs::create_dir_all("/tmp/relic").map_err(|e| e.to_string())?;
+
+        let lib_name = format!("llvm_jit_{}", inc());
+        let ll_source_name = format!("/tmp/relic/{lib_name}.ll");
+        let lib_full_name = format!("/tmp/relic/{lib_name}.relic");
+
+        let context = inkwell::context::Context::create();
+        let mut codegen = LlvmCodeGen::new_library(&context, lib_name.to_string());
+        compile_llvm::compile_llvm(self, &mut codegen, debug_info)?;
+        codegen.finalize();
+        codegen.write_to_file(&ll_source_name)?;
+
+        let status = Command::new("clang")
+            .args([
+                "-shared",
+                "-fPIC",
+                "-O3",
+                "-g",
+                "-o",
+                &lib_full_name,
+                &ll_source_name,
+                #[cfg(target_os = "macos")]
+                "-Wl,-undefined,dynamic_lookup",
+            ])
+            .spawn()
+            .map_err(|e| e.to_string())?
+            .wait()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("LLVM compilation failed with status {status}"))
         }?;
 
         let lib = load_binary_library(&lib_full_name)?;

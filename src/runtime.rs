@@ -113,7 +113,7 @@ use crate::{
     node::{Node, PrintableNode},
     number::Number,
     symbol::Symbol,
-    util::{eval_arith, eval_rel, map_to_assoc_lst, CVoidFunc},
+    util::{CVoidFunc, eval_arith, eval_rel, map_to_assoc_lst},
 };
 
 use libloading::Library;
