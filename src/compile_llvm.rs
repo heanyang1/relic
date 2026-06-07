@@ -60,8 +60,13 @@ use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
     builder::Builder,
     context::Context,
+    debug_info::{
+        AsDIScope, DIFile, DIFlags, DIFlagsConstants, DIScope,
+        DISubprogram, DWARFEmissionKind, DWARFSourceLanguage, DebugInfoBuilder,
+        debug_metadata_version,
+    },
     execution_engine::ExecutionEngine,
-    module::Module,
+    module::{FlagBehavior, Module},
     values::{FunctionValue, IntValue, PointerValue},
 };
 
@@ -86,6 +91,9 @@ pub struct LlvmCodeGen<'ctx> {
     current_fn: Option<FunctionValue<'ctx>>,
     strings: HashMap<String, PointerValue<'ctx>>,
     unique_counter: Cell<usize>,
+    dibuilder: Option<DebugInfoBuilder<'ctx>>,
+    file_info: Option<DIFile<'ctx>>,
+    current_di_scope: Option<DIScope<'ctx>>,
 }
 
 impl<'ctx> LlvmCodeGen<'ctx> {
@@ -100,6 +108,9 @@ impl<'ctx> LlvmCodeGen<'ctx> {
             current_fn: None,
             strings: HashMap::new(),
             unique_counter: Cell::new(0),
+            dibuilder: None,
+            file_info: None,
+            current_di_scope: None,
         };
 
         codegen.create_main_or_library_fn("main", true);
@@ -117,6 +128,9 @@ impl<'ctx> LlvmCodeGen<'ctx> {
             current_fn: None,
             strings: HashMap::new(),
             unique_counter: Cell::new(0),
+            dibuilder: None,
+            file_info: None,
+            current_di_scope: None,
         };
 
         codegen.create_main_or_library_fn(&name, false);
@@ -503,11 +517,89 @@ impl<'ctx> LlvmCodeGen<'ctx> {
             .unwrap();
     }
 
+    fn init_debug_info(&mut self, filename: &str) {
+        if self.dibuilder.is_some() {
+            return;
+        }
+        let version = self
+            .i32_type()
+            .const_int(debug_metadata_version() as u64, false);
+        self.module.add_basic_value_flag(
+            "Debug Info Version",
+            FlagBehavior::Warning,
+            version,
+        );
+        let (dibuilder, compile_unit) = self.module.create_debug_info_builder(
+            true,
+            DWARFSourceLanguage::C,
+            filename,
+            ".",
+            "relic llvm compiler",
+            false,
+            "",
+            0,
+            "",
+            DWARFEmissionKind::Full,
+            0,
+            false,
+            false,
+            "",
+            "",
+        );
+        let file_info = dibuilder.create_file(filename, ".");
+        self.file_info = Some(file_info);
+        self.dibuilder = Some(dibuilder);
+        let _ = compile_unit;
+    }
+
+    fn create_function_di(&mut self, name: &str, line: u32) -> Option<DISubprogram<'ctx>> {
+        let dibuilder = self.dibuilder.as_ref()?;
+        let file = *self.file_info.as_ref()?;
+        let current_fn = self.current_fn?;
+
+        let subroutine_type =
+            dibuilder.create_subroutine_type(file, None, &[], DIFlags::ZERO);
+        let subprogram = dibuilder.create_function(
+            file.as_debug_info_scope(),
+            name,
+            None,
+            file,
+            line,
+            subroutine_type,
+            true,
+            true,
+            line,
+            DIFlags::PUBLIC,
+            false,
+        );
+        current_fn.set_subprogram(subprogram);
+        self.current_di_scope = Some(subprogram.as_debug_info_scope());
+        Some(subprogram)
+    }
+
+    fn set_debug_loc(&self, line: u32, column: u32) {
+        if let (Some(dibuilder), Some(scope)) = (self.dibuilder.as_ref(), self.current_di_scope)
+        {
+            let loc = dibuilder.create_debug_location(self.context, line, column, scope, None);
+            self.builder.set_current_debug_location(loc);
+        }
+    }
+
+    fn emit_dwarf_loc(&self, node: &LexerMonad<Node>) {
+        let fp = node.begin_fp();
+        let line = fp.line_number() as u32;
+        let column = fp.column_number() as u32;
+        self.set_debug_loc(line, column);
+    }
+
     pub fn finalize(&self) {
         if self.current_fn.is_some() {
             self.builder
                 .build_return(Some(&self.i32_type().const_int(0, false)))
                 .unwrap();
+        }
+        if let Some(ref dibuilder) = self.dibuilder {
+            dibuilder.finalize();
         }
     }
 
@@ -537,6 +629,17 @@ pub fn compile_llvm(
     codegen: &mut LlvmCodeGen,
     dbg_info: bool,
 ) -> Result<(), String> {
+    if dbg_info {
+        let fp = node.begin_fp();
+        let filename = fp.filename();
+        codegen.init_debug_info(filename);
+        let line = fp.line_number() as u32;
+        let fn_name = codegen
+            .current_fn
+            .map(|f| f.get_name().to_str().unwrap_or("main").to_string())
+            .unwrap_or_else(|| "main".to_string());
+        codegen.create_function_di(&fn_name, line);
+    }
     node.compile_llvm(
         codegen,
         ContexInfo {
@@ -641,6 +744,9 @@ impl CompileLlvm for LexerMonad<Node> {
         ctx: ContexInfo,
         dbg_info: bool,
     ) -> Result<(), String> {
+        if dbg_info {
+            codegen.emit_dwarf_loc(self);
+        }
         match self.get() {
             Node::String(val) => {
                 if !ctx.drop_ret {
@@ -710,8 +816,16 @@ impl CompileLlvm for LexerMonad<Node> {
 
                             let saved_pos = codegen.builder.get_insert_block();
                             let saved_fn = codegen.current_fn;
+                            let saved_di_scope = codegen.current_di_scope;
                             codegen.current_fn = Some(closure_fn);
                             codegen.builder.position_at_end(entry);
+
+                            if dbg_info {
+                                let fp = self.begin_fp();
+                                let line = fp.line_number() as u32;
+                                codegen.create_function_di(&func_name, line);
+                                codegen.emit_dwarf_loc(self);
+                            }
 
                             let lambda_ctx = ContexInfo {
                                 drop_env: true,
@@ -722,6 +836,10 @@ impl CompileLlvm for LexerMonad<Node> {
                             codegen.builder.build_return(None).unwrap();
 
                             codegen.current_fn = saved_fn;
+                            codegen.current_di_scope = saved_di_scope;
+                            if dbg_info {
+                                codegen.emit_dwarf_loc(self);
+                            }
                             if let Some(block) = saved_pos {
                                 codegen.builder.position_at_end(block);
                             }

@@ -108,6 +108,8 @@ src/
   lib.rs, main.rs, lexer.rs, parser.rs, compile.rs, compile_llvm.rs, runtime.rs
   error.rs, env.rs, node.rs, symbol.rs, number.rs, package.rs
   preprocess.rs, logger.rs, util.rs
+test_driver/
+  test_gdb_driver.c, Makefile, README.md, .gitignore
 tests/
   lexer_test.rs, parser_test.rs, compile_test.rs
   runtime_test.rs, preprocess_test.rs
@@ -146,6 +148,16 @@ cargo build -j 1   # Sequential if parallel issues
 - Use `rt_breakpoint()` in compiled code for debugger integration
 - To inspect generated LLVM IR, compile with `relic compile --backend llvm -i program.lisp -o program.ll`
 - Generated C files are at `/tmp/relic/jit_*.c`
+- **GDB debugging (LLVM backend)**: Use `-g` flag to emit DWARF debug symbols. Compile the `.ll` to a shared library, then use `test_driver/test_gdb_driver` to load it under GDB:
+  ```bash
+  relic compile --backend llvm -g -i program.lisp -o program.ll
+  clang -shared -g -fPIC program.ll -L target/debug -lrelic \
+      -Wl,-rpath,$(pwd)/target/debug -o program.relic
+  cc -o test_driver/test_gdb_driver test_driver/test_gdb_driver.c -ldl
+  gdb --args $(pwd)/test_driver/test_gdb_driver $(pwd)/program.relic
+  (gdb) break program.lisp:5
+  (gdb) run
+  ```
 
 ### Adding LLVM Backend Support for a New Feature
 1. If the feature affects code generation, update `src/compile.rs` (C backend) and `src/compile_llvm.rs` (LLVM backend)
@@ -155,6 +167,7 @@ cargo build -j 1   # Sequential if parallel issues
 5. String constants are deduplicated as global `@.str_N` arrays
 6. Closures compile to separate LLVM functions (`func_{id}`) within the same module
 7. Use `assert_eval_node_dual!` / `assert_eval_text_dual!` in tests to verify both backends produce identical results
+8. For debug info support, see `init_debug_info()` and `create_function_di()` in `compile_llvm.rs`
 
 ### Fuzz Testing Both Backends
 Run the Python fuzzer to compare C and LLVM/JIT backends on random Lisp expressions:
@@ -176,3 +189,4 @@ uses in-process compilation (no temp files) so `--jobs >1 --backend llvm` is saf
 - The `.cargo/config.toml` sets `LLVM_SYS_180_PREFIX` for the LLVM installation path
 - The compiler generates C code or LLVM IR, not standalone executables
 - Both backends share the same runtime and produce identical results
+- DWARF debug symbols are emitted by the LLVM backend when `-g` is passed. See `test_driver/README.md` for GDB usage.

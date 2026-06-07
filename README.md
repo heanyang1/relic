@@ -52,6 +52,29 @@ cargo run -- run --backend llvm -i program.lisp
 
 The `--backend` flag accepts `c` (default) or `llvm`. It works with all modes: `repl`, `run`, `compile`, and `debug`.
 
+### Debug Symbols (GDB)
+
+The LLVM backend emits DWARF debug info when passed the `-g` flag. This allows
+setting breakpoints by source file and line, stepping through Lisp code, and
+inspecting backtraces with closure names in GDB:
+
+```sh
+# Compile with debug info
+cargo run -- compile --backend llvm -g -i program.lisp -o program.ll
+clang -shared -g -fPIC program.ll \
+    -L target/debug -lrelic \
+    -Wl,-rpath,$(pwd)/target/debug \
+    -o program.relic
+
+# Debug with GDB (use the bundled driver)
+cc -o test_driver/test_gdb_driver test_driver/test_gdb_driver.c -ldl
+gdb --args $(pwd)/test_driver/test_gdb_driver $(pwd)/program.relic
+(gdb) break program.lisp:5
+(gdb) run
+```
+
+See `test_driver/README.md` for detailed instructions.
+
 See [the wiki](https://github.com/heanyang1/relic/wiki) for supported features and how to use Relic's package system.
 
 ## Testing
@@ -73,7 +96,7 @@ cd c_runtime
 - [x] Package system
 - [x] Compile to LLVM
 - [] Better error message
-- [] Debug information and GDB/LLDB support
+- [x] Debug information and GDB/LLDB support
 - [] Better macros
 
 ### Library

@@ -251,6 +251,10 @@ impl<T> LexerMonad<T> {
         &self.data
     }
 
+    pub(crate) fn begin_fp(&self) -> &FilePointer {
+        &self.begin
+    }
+
     /// Creates an error message with location information.
     ///
     /// # Parameters
@@ -353,6 +357,18 @@ impl FilePointer {
             str_idx,
             after_newline: false,
         }
+    }
+
+    pub(crate) fn filename(&self) -> &str {
+        &self.filename
+    }
+
+    pub(crate) fn line_number(&self) -> usize {
+        self.line_number
+    }
+
+    pub(crate) fn column_number(&self) -> usize {
+        self.column_number
     }
 }
 
