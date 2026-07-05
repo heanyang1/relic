@@ -28,14 +28,13 @@ use relic::{
     RT,
     compile::{CodeGen, compile},
     compile_llvm::{self, LlvmCodeGen},
-    env::Env,
     error::ParseError,
     lexer::LexerMonad,
-    logger::{LogLevel, log_debug, log_error, set_log_level},
+    logger::log_error,
     package::file_to_node,
     preprocess::PreProcess,
     rt_start, run_node, run_node_llvm,
-    runtime::{DbgState, Runtime, StackMachine},
+
     unwrap_result,
 };
 
@@ -109,8 +108,6 @@ enum Mode {
     /// Compiles the input file to C code and write to output file.
     /// If the output file is not specified, print the code to stdout.
     Compile,
-    /// Run a debugger on input file.
-    Debug,
 }
 
 /// Compilation backend.
@@ -154,90 +151,6 @@ struct Cli {
     /// Compilation backend to use.
     #[arg(long, value_enum, default_value = "c")]
     backend: Backend,
-}
-
-/// Debugger command loop.
-///
-/// Reads debugger commands and returns the appropriate debug state.
-///
-/// # Parameters
-///
-/// * `runtime` - The runtime to inspect
-///
-/// # Commands
-///
-/// * `s` / `step`: Step to next expression
-/// * `n` / `next`: Step to next line
-/// * `c` / `continue`: Continue execution
-/// * `p <var>` / `print <var>`: Print variable value
-/// * `r` / `runtime`: Display runtime state
-fn dbg_loop(runtime: &Runtime) -> DbgState {
-    // Initialize rustyline editor with default configuration
-    let mut rl = Editor::<(), _>::new().unwrap();
-
-    // Load history from file if it exists
-    let history_path = PathBuf::from(".relic_history");
-    let _ = rl.load_history(&history_path);
-
-    loop {
-        match rl.readline("dbg> ") {
-            Ok(line) => {
-                let line = line.trim_end();
-                if !line.is_empty()
-                    && let Err(e) = rl.add_history_entry(line)
-                {
-                    log_error(format!("Failed to add to history: {e}"));
-                }
-
-                let _ = rl.save_history(&history_path);
-
-                match line {
-                    "s" | "step" => {
-                        return DbgState::Step;
-                    }
-                    "n" | "next" => {
-                        return DbgState::Next;
-                    }
-                    "c" | "continue" => {
-                        return DbgState::Normal;
-                    }
-                    "r" | "runtime" => log_debug(format!("{runtime}")),
-                    input => {
-                        match input
-                            .strip_prefix("p ")
-                            .or_else(|| input.strip_prefix("print "))
-                        {
-                            Some(var) => {
-                                let env = runtime.current_env();
-                                let idx = env.get(&var.to_string(), runtime);
-                                match idx {
-                                    Some(idx) => log_debug(format!(
-                                        "{var} = {}",
-                                        runtime.display_node_idx(idx)
-                                    )),
-                                    None => log_error(format!("variable {var} not found")),
-                                };
-                            }
-                            None => log_error(
-                                "Wrong input. Available commands: (s)tep, (n)ext, (c)ontinue, (p)rint, (r)untime. Press C-d to quit.",
-                            ),
-                        }
-                    }
-                }
-            }
-            Err(ReadlineError::Interrupted) => {
-                log_error("Use C-d to exit the debugger");
-                continue;
-            }
-            Err(ReadlineError::Eof) => {
-                std::process::exit(0);
-            }
-            Err(err) => {
-                log_error(format!("Error reading line: {err}"));
-                continue;
-            }
-        }
-    }
 }
 
 fn main() {
@@ -372,7 +285,7 @@ fn main() {
                         None => CodeGen::new_main(),
                     };
                     unwrap_result(
-                        compile(&node, &mut codegen, cli.debug_info),
+                        compile(&node, &mut codegen),
                         &mut RT.write().unwrap(),
                     );
                     match cli.output_path {
@@ -410,29 +323,6 @@ fn main() {
                     }
                 }
             },
-            None => {
-                eprintln!("No files to compile");
-            }
-        },
-        Mode::Debug => match input_node {
-            Some(node) => {
-                rt_start();
-                set_log_level(LogLevel::Debug);
-                {
-                    let mut runtime = RT.write().unwrap();
-                    runtime.set_callback(dbg_loop);
-                    runtime.begin_debug();
-                }
-                match cli.backend {
-                    Backend::Llvm => {
-                        unwrap_result(node.jit_compile_llvm(true), &mut RT.write().unwrap())
-                    }
-                    Backend::C => unwrap_result(node.jit_compile(true), &mut RT.write().unwrap()),
-                }
-                let mut runtime = RT.write().unwrap();
-                let index = runtime.pop();
-                println!("result: {}", runtime.display_node_idx(index))
-            }
             None => {
                 eprintln!("No files to compile");
             }

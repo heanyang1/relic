@@ -1,10 +1,10 @@
 use std::{collections::HashMap, ffi::CString, process::Command};
 
 use relic::lexer::LexerMonad;
-use relic::logger::{LogLevel, set_log_level};
+use relic::logger::set_log_level;
 use relic::number::Number;
 use relic::preprocess::PreProcess;
-use relic::runtime::{DbgState, Runtime, RuntimeNode, StackMachine};
+use relic::runtime::RuntimeNode;
 use relic::symbol::Symbol;
 use relic::{RT, rt_pop, rt_start};
 use relic::{
@@ -13,7 +13,6 @@ use relic::{
     rt_get, rt_import,
 };
 use serial_test::serial;
-use std::sync::atomic::AtomicUsize;
 use std::{io::Write, process::Stdio};
 
 fn compile_and_load(input: &str, lib_name: &str) {
@@ -24,7 +23,7 @@ fn compile_and_load(input: &str, lib_name: &str) {
         match lexer.parse() {
             Ok(node) => {
                 let node = node.preprocess(&mut macros).unwrap();
-                compile::compile(&node, &mut codegen, false).unwrap();
+                compile::compile(&node, &mut codegen).unwrap();
                 lexer = node.get_end();
             }
             Err(ParseError::EOF) => break,
@@ -81,7 +80,7 @@ macro_rules! assert_eval_node {
         let mut node = tokens.parse().unwrap();
         node = node.preprocess(&mut macros).unwrap();
 
-        node.jit_compile(true).unwrap();
+        node.jit_compile().unwrap();
         let expected = {
             let mut runtime = RT.write().unwrap();
             runtime.new_node_with_gc($expected)
@@ -95,38 +94,13 @@ macro_rules! assert_eval_node {
         let mut node = tokens.parse().unwrap();
         node = node.preprocess(&mut $macros).unwrap();
 
-        node.jit_compile(true).unwrap();
+        node.jit_compile().unwrap();
         let expected = {
             let mut runtime = RT.write().unwrap();
             runtime.new_node_with_gc($expected)
         };
         let index = rt_pop();
         assert!(RT.read().unwrap().node_eq(index, expected));
-    }};
-}
-
-macro_rules! assert_eval_text {
-    ($code:expr, $expected:expr) => {{
-        let mut macros = HashMap::new();
-        let tokens = LexerMonad::new_unnamed($code);
-        let mut node = tokens.parse().unwrap();
-        node = node.preprocess(&mut macros).unwrap();
-
-        node.jit_compile(true).unwrap();
-        let index = rt_pop();
-        let actual = RT.read().unwrap().display_node_idx(index);
-        assert_eq!(actual, $expected);
-    }};
-
-    ($code:expr, $expected:expr, $macros:expr) => {{
-        let tokens = LexerMonad::new_unnamed($code);
-        let mut node = tokens.parse().unwrap();
-        node = node.preprocess(&mut $macros).unwrap();
-
-        node.jit_compile(true).unwrap();
-        let index = rt_pop();
-        let actual = RT.read().unwrap().display_node_idx(index);
-        assert_eq!(actual, $expected);
     }};
 }
 
@@ -137,7 +111,7 @@ macro_rules! assert_eval_node_dual {
         let mut node = tokens.parse().unwrap();
         node = node.preprocess(&mut macros).unwrap();
 
-        node.jit_compile(true).unwrap();
+        node.jit_compile().unwrap();
         let expected = {
             {
                 let mut runtime = RT.write().unwrap();
@@ -155,7 +129,7 @@ macro_rules! assert_eval_node_dual {
         let tokens2 = LexerMonad::new_unnamed($code);
         let mut node2 = tokens2.parse().unwrap();
         node2 = node2.preprocess(&mut macros2).unwrap();
-        node2.jit_compile_llvm(true).unwrap();
+        node2.jit_compile_llvm(false).unwrap();
         let expected2 = {
             {
                 let mut runtime = RT.write().unwrap();
@@ -175,7 +149,7 @@ macro_rules! assert_eval_node_dual {
         let mut node = tokens.parse().unwrap();
         node = node.preprocess(&mut $macros).unwrap();
 
-        node.jit_compile(true).unwrap();
+        node.jit_compile().unwrap();
         let expected = {
             {
                 let mut runtime = RT.write().unwrap();
@@ -192,7 +166,7 @@ macro_rules! assert_eval_node_dual {
         let tokens2 = LexerMonad::new_unnamed($code);
         let mut node2 = tokens2.parse().unwrap();
         node2 = node2.preprocess(&mut $macros).unwrap();
-        node2.jit_compile_llvm(true).unwrap();
+        node2.jit_compile_llvm(false).unwrap();
         let expected2 = {
             {
                 let mut runtime = RT.write().unwrap();
@@ -215,7 +189,7 @@ macro_rules! assert_eval_text_dual {
         let mut node = tokens.parse().unwrap();
         node = node.preprocess(&mut macros).unwrap();
 
-        node.jit_compile(true).unwrap();
+        node.jit_compile().unwrap();
         let c_index = rt_pop();
         let c_actual = RT.read().unwrap().display_node_idx(c_index);
         assert_eq!(c_actual, $expected, "C backend: {}", stringify!($code));
@@ -224,7 +198,7 @@ macro_rules! assert_eval_text_dual {
         let tokens2 = LexerMonad::new_unnamed($code);
         let mut node2 = tokens2.parse().unwrap();
         node2 = node2.preprocess(&mut macros2).unwrap();
-        node2.jit_compile_llvm(true).unwrap();
+        node2.jit_compile_llvm(false).unwrap();
         let llvm_index = rt_pop();
         let llvm_actual = RT.read().unwrap().display_node_idx(llvm_index);
         assert_eq!(
@@ -242,7 +216,7 @@ macro_rules! assert_eval_text_dual {
         let mut node = tokens.parse().unwrap();
         node = node.preprocess(&mut $macros).unwrap();
 
-        node.jit_compile(true).unwrap();
+        node.jit_compile().unwrap();
         let c_index = rt_pop();
         let c_actual = RT.read().unwrap().display_node_idx(c_index);
         assert_eq!(c_actual, $expected, "C backend: {}", stringify!($code));
@@ -250,7 +224,7 @@ macro_rules! assert_eval_text_dual {
         let tokens2 = LexerMonad::new_unnamed($code);
         let mut node2 = tokens2.parse().unwrap();
         node2 = node2.preprocess(&mut $macros).unwrap();
-        node2.jit_compile_llvm(true).unwrap();
+        node2.jit_compile_llvm(false).unwrap();
         let llvm_index = rt_pop();
         let llvm_actual = RT.read().unwrap().display_node_idx(llvm_index);
         assert_eq!(
@@ -1095,35 +1069,6 @@ fn run_c_test() {
     let mut runtime = RT.write().unwrap();
     runtime.clear();
     std::fs::remove_file("lib/test.relic").unwrap();
-}
-
-pub static COUNT: AtomicUsize = AtomicUsize::new(0);
-
-#[test]
-#[serial]
-fn debug_test() {
-    fn test_callback(rt: &Runtime) -> DbgState {
-        if COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
-            assert!(rt.empty());
-        } else {
-            println!("{}", rt.display_node_idx(rt.top()));
-        }
-        println!("{rt}");
-        DbgState::Next
-    }
-    rt_start();
-    set_log_level(LogLevel::Debug);
-    {
-        let mut runtime = RT.write().unwrap();
-        runtime.set_callback(test_callback);
-    }
-    assert_eval_node!("(define (f x) (* x 2))", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(breakpoint)", RuntimeNode::Symbol(Symbol::Nil));
-    assert_eval_node!("(+ 1 (f 2))", RuntimeNode::Number(Number::Int(5)));
-    {
-        let mut runtime = RT.write().unwrap();
-        runtime.clear();
-    }
 }
 
 #[test]

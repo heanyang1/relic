@@ -155,7 +155,7 @@ macro_rules! return_nil {
 }
 
 macro_rules! set_family {
-    ($func_name:expr, $target:expr, $cdr:expr, $codegen:expr, $ctx:expr, $dbg_info:expr) => {{
+    ($func_name:expr, $target:expr, $cdr:expr, $codegen:expr, $ctx:expr) => {{
         let params = get_n_params($cdr.clone(), 2)?;
         let sym = &params[0];
         let expr = &params[1];
@@ -166,7 +166,6 @@ macro_rules! set_family {
                 drop_env: false,
                 drop_ret: false,
             },
-            $dbg_info,
         )?;
         $codegen.append_code(&format!("rt_{}({}, rt_pop());", $func_name, $target(name)));
         return_nil!($codegen, $ctx);
@@ -242,9 +241,8 @@ macro_rules! no_drop {
 pub fn compile(
     node: &LexerMonad<Node>,
     codegen: &mut CodeGen,
-    dbg_info: bool,
 ) -> Result<(), String> {
-    node.compile(codegen, no_drop!(), dbg_info)
+    node.compile(codegen, no_drop!())
 }
 
 /// The trait that defines a way to compile the object.
@@ -253,10 +251,7 @@ trait Compile {
     ///
     /// The semantics of the compiled code is to evaluate this object and push
     /// its value to the stack.
-    ///
-    /// If `dbg_info` is true, a special statement will be inserted at the end
-    /// of each evaluation to support `n` command in the debugger.
-    fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo, dbg_info: bool)
+    fn compile(&self, codegen: &mut CodeGen, ctx: ContexInfo)
     -> Result<(), String>;
 }
 
@@ -265,7 +260,6 @@ impl Compile for Symbol {
         &self,
         codegen: &mut CodeGen,
         ctx: ContexInfo,
-        _dbg_info: bool,
     ) -> Result<(), String> {
         if !ctx.drop_ret {
             let code = match self {
@@ -287,7 +281,6 @@ impl Compile for LexerMonad<Node> {
         &self,
         codegen: &mut CodeGen,
         ctx: ContexInfo,
-        dbg_info: bool,
     ) -> Result<(), String> {
         match self.get() {
             Node::String(val) => {
@@ -349,7 +342,7 @@ impl Compile for LexerMonad<Node> {
                                 drop_env: true,
                                 drop_ret: false,
                             };
-                            body.compile(&mut lambda_gen, ctx, dbg_info)?;
+                            body.compile(&mut lambda_gen, ctx)?;
                             codegen.merge(lambda_gen);
 
                             // Write the code that creates the closure.
@@ -370,7 +363,6 @@ impl Compile for LexerMonad<Node> {
                                 drop_env: ctx.drop_env,
                                 drop_ret: false,
                             },
-                            dbg_info,
                         )?;
                         codegen.append_code(
                             r#"
@@ -386,12 +378,6 @@ fflush(NULL);"#,
                         return_nil!(codegen, ctx);
                         Ok(())
                     }
-                    SpecialForm::BreakPoint => {
-                        let _ = get_n_params(cdr.clone(), 0)?;
-                        codegen.append_code("rt_breakpoint();");
-                        return_nil!(codegen, ctx);
-                        Ok(())
-                    }
                     SpecialForm::Define => {
                         let params = get_n_params(cdr.clone(), 2)?;
                         if ctx.drop_env {
@@ -400,7 +386,7 @@ fflush(NULL);"#,
                         } else if let Node::Symbol(Symbol::User(name)) = params[0].borrow().get() {
                             // `define` uses both of the environment and the return value.
                             // So do `set*`.
-                            params[1].borrow().compile(codegen, no_drop!(), dbg_info)?;
+                            params[1].borrow().compile(codegen, no_drop!())?;
                             codegen.append_code(&format!("rt_define(\"{name}\", rt_pop());"));
                             return_nil!(codegen, ctx);
                             Ok(())
@@ -417,8 +403,7 @@ fflush(NULL);"#,
                             |name| { format!("\"{name}\"") },
                             cdr,
                             codegen,
-                            ctx,
-                            dbg_info
+                            ctx
                         )
                     }
                     SpecialForm::SetCar => {
@@ -427,8 +412,7 @@ fflush(NULL);"#,
                             |name| { format!("rt_get(\"{name}\")") },
                             cdr,
                             codegen,
-                            ctx,
-                            dbg_info
+                            ctx
                         )
                     }
                     SpecialForm::SetCdr => {
@@ -437,19 +421,18 @@ fflush(NULL);"#,
                             |name| { format!("rt_get(\"{name}\")") },
                             cdr,
                             codegen,
-                            ctx,
-                            dbg_info
+                            ctx
                         )
                     }
                     SpecialForm::If => {
                         // The value and environment of precondition must be preserved;
                         // those of the branches can be dropped.
                         let params = get_n_params(cdr.clone(), 3)?;
-                        params[0].borrow().compile(codegen, no_drop!(), dbg_info)?;
+                        params[0].borrow().compile(codegen, no_drop!())?;
                         codegen.append_code("if (rt_get_bool(rt_pop()) > 0) {");
-                        params[1].borrow().compile(codegen, ctx, dbg_info)?;
+                        params[1].borrow().compile(codegen, ctx)?;
                         codegen.append_code("} else {");
-                        params[2].borrow().compile(codegen, ctx, dbg_info)?;
+                        params[2].borrow().compile(codegen, ctx)?;
                         codegen.append_code("}");
                         Ok(())
                     }
@@ -477,7 +460,7 @@ fflush(NULL);"#,
                                         drop_ret: true,
                                     }
                                 };
-                                operand.borrow().compile(codegen, context, dbg_info)?;
+                                operand.borrow().compile(codegen, context)?;
                             }
                         }
                         Ok(())
@@ -495,13 +478,13 @@ fflush(NULL);"#,
                     SpecialForm::Apply => {
                         let params = get_n_params(cdr.clone(), 2)?;
                         // operand list
-                        params[1].borrow().compile(codegen, no_drop!(), dbg_info)?;
+                        params[1].borrow().compile(codegen, no_drop!())?;
 
                         // list -> stack
                         codegen.append_code("rt_list_to_stack();");
 
                         // operator
-                        params[0].borrow().compile(codegen, no_drop!(), dbg_info)?;
+                        params[0].borrow().compile(codegen, no_drop!())?;
 
                         call_procedure(ctx, codegen);
                         Ok(())
@@ -513,31 +496,22 @@ fflush(NULL);"#,
 
                     // operands
                     for operand in operands.iter().rev() {
-                        operand.borrow().compile(codegen, no_drop!(), dbg_info)?;
+                        operand.borrow().compile(codegen, no_drop!())?;
                     }
 
                     // nargs
                     codegen.append_code(&format!("rt_new_integer({});", operands.len()));
 
                     // operator
-                    car.borrow().compile(codegen, no_drop!(), dbg_info)?;
+                    car.borrow().compile(codegen, no_drop!())?;
 
                     call_procedure(ctx, codegen);
                     Ok(())
                 }
             },
             Node::SpecialForm(_) => unreachable!("{self}"),
-            Node::Symbol(sym) => sym.compile(codegen, ctx, dbg_info),
+            Node::Symbol(sym) => sym.compile(codegen, ctx),
         }?;
-        if dbg_info {
-            let self_str = self.to_string();
-            let self_str = self_str.replace("\"", "'");
-            codegen.append_code(&format!(
-                "rt_evaluated(\"{}\", {});",
-                self_str,
-                if ctx.drop_ret { 1 } else { 0 }
-            ));
-        }
         Ok(())
     }
 }

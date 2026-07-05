@@ -87,16 +87,6 @@
 //! 2. When called, a new environment is created with the closure's env as outer
 //! 3. Arguments are bound in this new environment
 //!
-//! ## Debugger Support
-//!
-//! The runtime supports debugging through the [`DbgState`] enum:
-//! - [`DbgState::Normal`]: Only break on explicit breakpoints
-//! - [`DbgState::Next`]: Break after each expression evaluation
-//! - [`DbgState::Step`]: Break after each runtime API call
-//!
-//! The `api_called()`, `breakpoint()`, and `evaluated()` methods integrate with
-//! the debugger callback system.
-//!
 //! ## FFI Considerations
 //!
 //! All data access is through indices to avoid ownership issues in C bindings.
@@ -109,7 +99,7 @@ use crate::{
     env::Env,
     error::{ParseError, RuntimeError},
     lexer::LexerMonad,
-    logger::{log_debug, log_error},
+    logger::log_error,
     node::{Node, PrintableNode},
     number::Number,
     symbol::Symbol,
@@ -226,27 +216,12 @@ pub enum RuntimeNode {
     BrokenHeart(usize),
 }
 
-/// Whether the runtime should enter the debugger.
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
-pub enum DbgState {
-    /// Enter debugger when hitting a breakpoint.
-    Normal = 1,
-    /// Enter debugger after evaluating an expression.
-    Next = 2,
-    /// Enter debugger after every runtime API call.
-    Step = 3,
-}
-
-type StaticFn = Box<dyn Fn(&Runtime) -> DbgState + Sync + Send + 'static>;
-
 /// The runtime.
 ///
 /// To simplify bindings and avoid ownership issues, users can only get the
 /// index of the runtime node in the GC area. There are functions that retrives
 /// the content of the node through index.
 pub struct Runtime {
-    /// Whether the runtime should enter the debugger.
-    dbg_state: DbgState,
     /// The stack. Its content is the index to the element in the GC area.
     ///
     /// The stack element won't be GCed.
@@ -265,8 +240,6 @@ pub struct Runtime {
     /// This field is not used, but we need to keep it so that we can use the
     /// C function pointers inside the shared library.
     packages: HashMap<String, PackageHandle>,
-    /// Callback function called when a breakpoint is hit.
-    dbg_callback: Option<StaticFn>,
 }
 
 impl Display for Runtime {
@@ -740,82 +713,15 @@ impl Runtime {
     }
 }
 
-// Debugger support
-impl Runtime {
-    /// Set debug callback function. Users can only set it once.
-    pub fn set_callback<T>(&mut self, callback: T)
-    where
-        T: Fn(&Self) -> DbgState + Sync + Send + 'static,
-    {
-        assert!(self.dbg_callback.is_none());
-        self.dbg_callback = Some(Box::new(callback));
-    }
-    /// Set debug level.
-    pub fn set_dbg_level(&mut self, level: DbgState) {
-        self.dbg_state = level
-    }
-
-    /// Calls the callback function if there is one.
-    fn interrupt(&mut self, level: DbgState, msg: String) {
-        let next_state = match (&self.dbg_callback, self.dbg_state) {
-            (Some(func), s) if s >= level => {
-                log_debug(msg);
-                func(self)
-            }
-            (_, s) => s,
-        };
-        self.dbg_state = next_state;
-    }
-
-    /// Called when there is an error.
-    pub fn error(&mut self, msg: &str) {
-        log_error(msg);
-        self.interrupt(DbgState::Normal, "Break on error".to_string());
-    }
-
-    /// Called when a breakpoint is hit.
-    pub fn breakpoint(&mut self) {
-        self.interrupt(DbgState::Normal, "Hit a breakpoint".to_string());
-    }
-
-    /// This statement is inserted by the compiler as debug information.
-    /// if `optimized` is true, then the return value will be printed as
-    /// [optimized].
-    pub fn evaluated(&mut self, info: &str, optimized: bool) {
-        let msg = if optimized {
-            format!("{info}\n\t|-> [optimized]")
-        } else {
-            let result = self.top();
-            format!("{}\n\t|-> {}", info, self.display_node_idx(result))
-        };
-        self.interrupt(DbgState::Next, msg);
-    }
-
-    /// Called when a runtime API is called.
-    pub fn api_called<T>(&mut self, info: T)
-    where
-        T: Display,
-    {
-        self.interrupt(DbgState::Step, format!("API called: {info}"));
-    }
-
-    /// Debuggers call this to enter the debug loop.
-    pub fn begin_debug(&mut self) {
-        self.interrupt(DbgState::Normal, "Relic debugger started".to_string());
-    }
-}
-
 // New and delete
 impl Runtime {
     pub fn new(size: usize) -> Runtime {
         Runtime {
-            dbg_state: DbgState::Normal,
             stack: vec![],
             areas: (Vec::with_capacity(size), Vec::with_capacity(size)),
             size,
             roots: HashMap::new(),
             packages: HashMap::new(),
-            dbg_callback: None,
         }
     }
 
@@ -825,7 +731,11 @@ impl Runtime {
         self.packages.clear();
         self.areas.0.clear();
         self.areas.1.clear();
-        self.dbg_callback = None;
+    }
+
+    /// Called when there is an error.
+    pub fn error(&mut self, msg: &str) {
+        log_error(msg);
     }
 }
 

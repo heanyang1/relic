@@ -51,10 +51,6 @@ extern void rt_list_to_stack();
 typedef void (*c_func)();
 extern c_func rt_get_c_func(size_t cid);
 
-// Debug information
-extern void rt_evaluated(const char *name, int optimized);
-extern void rt_breakpoint();
-
 // Root registers
 extern void rt_add_root(const char *name, size_t value);
 extern void rt_set_root(const char *name, size_t value);

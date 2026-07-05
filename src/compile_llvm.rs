@@ -339,10 +339,6 @@ impl<'ctx> LlvmCodeGen<'ctx> {
             "rt_list_to_stack" => self.void_type().fn_type(&[], false),
             "rt_new_constant" => self.void_type().fn_type(&[self.ptr_type().into()], false),
             "rt_display_node_idx" => self.ptr_type().fn_type(&[self.i64_type().into()], false),
-            "rt_evaluated" => self
-                .void_type()
-                .fn_type(&[self.ptr_type().into(), self.i32_type().into()], false),
-            "rt_breakpoint" => self.void_type().fn_type(&[], false),
             "rt_import" => self.void_type().fn_type(&[self.ptr_type().into()], false),
             "rt_read" => self.void_type().fn_type(&[], false),
             "printf" => self.void_type().fn_type(&[self.ptr_type().into()], true),
@@ -614,17 +610,6 @@ impl<'ctx> LlvmCodeGen<'ctx> {
         }
     }
 
-    fn emit_dbg_info(&mut self, node: &LexerMonad<Node>, ctx: ContexInfo) {
-        let info = node.to_string().replace('"', "'");
-        let info_str = self.get_string_ptr(&info);
-        let drop_val = if ctx.drop_ret { 1u64 } else { 0u64 };
-        let i32_val = self.i32_type().const_int(drop_val, false);
-        let rt_fn = self.get_rt_fn("rt_evaluated");
-        self.builder
-            .build_call(rt_fn, &[info_str.into(), i32_val.into()], "")
-            .unwrap();
-    }
-
     pub fn finalize(&self) {
         if self.current_fn.is_some() {
             self.builder
@@ -679,7 +664,6 @@ pub fn compile_llvm(
             drop_env: false,
             drop_ret: false,
         },
-        dbg_info,
     )
 }
 
@@ -688,7 +672,6 @@ trait CompileLlvm {
         &self,
         codegen: &mut LlvmCodeGen,
         ctx: ContexInfo,
-        dbg_info: bool,
     ) -> Result<(), String>;
 }
 
@@ -717,7 +700,6 @@ macro_rules! set_family {
                 drop_env: false,
                 drop_ret: false,
             },
-            false,
         )?;
 
         let target_bv: inkwell::values::BasicValueEnum = $get_target(&name);
@@ -738,7 +720,6 @@ impl CompileLlvm for Symbol {
         &self,
         codegen: &mut LlvmCodeGen,
         ctx: ContexInfo,
-        _dbg_info: bool,
     ) -> Result<(), String> {
         if !ctx.drop_ret {
             match self {
@@ -775,7 +756,6 @@ impl CompileLlvm for LexerMonad<Node> {
         &self,
         codegen: &mut LlvmCodeGen,
         ctx: ContexInfo,
-        dbg_info: bool,
     ) -> Result<(), String> {
         if let Some(ref debug_info) = codegen.debug_info {
             debug_info.emit_dwarf_loc(self, &codegen.builder, codegen.context);
@@ -853,10 +833,9 @@ impl CompileLlvm for LexerMonad<Node> {
                             codegen.current_fn = Some(closure_fn);
                             codegen.builder.position_at_end(entry);
 
-                            if dbg_info {
+                            if let Some(ref mut debug_info) = codegen.debug_info {
                                 let fp = self.begin_fp();
                                 let line = fp.line_number() as u32;
-                                let debug_info = codegen.debug_info.as_mut().unwrap();
                                 debug_info.create_function_di(&func_name, line, codegen.current_fn.unwrap());
                                 debug_info.emit_dwarf_loc(self, &codegen.builder, codegen.context);
                             }
@@ -865,7 +844,7 @@ impl CompileLlvm for LexerMonad<Node> {
                                 drop_env: true,
                                 drop_ret: false,
                             };
-                            body.compile_llvm(codegen, lambda_ctx, dbg_info)?;
+                            body.compile_llvm(codegen, lambda_ctx)?;
 
                             codegen.builder.build_return(None).unwrap();
 
@@ -873,8 +852,8 @@ impl CompileLlvm for LexerMonad<Node> {
                             if let Some(ref mut debug_info) = codegen.debug_info {
                                 debug_info.set_current_di_scope(saved_di_scope);
                             }
-                            if dbg_info {
-                                codegen.debug_info.as_ref().unwrap().emit_dwarf_loc(self, &codegen.builder, codegen.context);
+                            if let Some(ref debug_info) = codegen.debug_info {
+                                debug_info.emit_dwarf_loc(self, &codegen.builder, codegen.context);
                             }
                             if let Some(block) = saved_pos {
                                 codegen.builder.position_at_end(block);
@@ -913,7 +892,6 @@ impl CompileLlvm for LexerMonad<Node> {
                                 drop_env: ctx.drop_env,
                                 drop_ret: false,
                             },
-                            dbg_info,
                         )?;
 
                         let rt_display = codegen.get_rt_fn("rt_display_node_idx");
@@ -955,13 +933,6 @@ impl CompileLlvm for LexerMonad<Node> {
                         return_nil!(codegen, ctx);
                         Ok(())
                     }
-                    SpecialForm::BreakPoint => {
-                        let _ = get_n_params(cdr.clone(), 0)?;
-                        let rt_fn = codegen.get_rt_fn("rt_breakpoint");
-                        codegen.builder.build_call(rt_fn, &[], "").unwrap();
-                        return_nil!(codegen, ctx);
-                        Ok(())
-                    }
                     SpecialForm::Define => {
                         let params = get_n_params(cdr.clone(), 2)?;
                         if ctx.drop_env {
@@ -973,7 +944,6 @@ impl CompileLlvm for LexerMonad<Node> {
                                     drop_env: false,
                                     drop_ret: false,
                                 },
-                                dbg_info,
                             )?;
                             let name_ptr = codegen.get_string_ptr(name);
                             let val = codegen.build_pop();
@@ -1053,7 +1023,6 @@ impl CompileLlvm for LexerMonad<Node> {
                                 drop_env: false,
                                 drop_ret: false,
                             },
-                            dbg_info,
                         )?;
 
                         let idx = codegen.build_pop();
@@ -1085,14 +1054,14 @@ impl CompileLlvm for LexerMonad<Node> {
                             .unwrap();
 
                         codegen.builder.position_at_end(then_block);
-                        params[1].borrow().compile_llvm(codegen, ctx, dbg_info)?;
+                        params[1].borrow().compile_llvm(codegen, ctx)?;
                         codegen
                             .builder
                             .build_unconditional_branch(merge_block)
                             .unwrap();
 
                         codegen.builder.position_at_end(else_block);
-                        params[2].borrow().compile_llvm(codegen, ctx, dbg_info)?;
+                        params[2].borrow().compile_llvm(codegen, ctx)?;
                         codegen
                             .builder
                             .build_unconditional_branch(merge_block)
@@ -1127,7 +1096,7 @@ impl CompileLlvm for LexerMonad<Node> {
                                         drop_ret: true,
                                     }
                                 };
-                                operand.borrow().compile_llvm(codegen, context, dbg_info)?;
+                                operand.borrow().compile_llvm(codegen, context)?;
                             }
                         }
                         Ok(())
@@ -1157,7 +1126,6 @@ impl CompileLlvm for LexerMonad<Node> {
                                 drop_env: false,
                                 drop_ret: false,
                             },
-                            dbg_info,
                         )?;
                         let rt_fn = codegen.get_rt_fn("rt_list_to_stack");
                         codegen.builder.build_call(rt_fn, &[], "").unwrap();
@@ -1167,7 +1135,6 @@ impl CompileLlvm for LexerMonad<Node> {
                                 drop_env: false,
                                 drop_ret: false,
                             },
-                            dbg_info,
                         )?;
 
                         codegen.call_procedure(ctx);
@@ -1185,7 +1152,6 @@ impl CompileLlvm for LexerMonad<Node> {
                                 drop_env: false,
                                 drop_ret: false,
                             },
-                            dbg_info,
                         )?;
                     }
 
@@ -1202,7 +1168,6 @@ impl CompileLlvm for LexerMonad<Node> {
                             drop_env: false,
                             drop_ret: false,
                         },
-                        dbg_info,
                     )?;
 
                     codegen.call_procedure(ctx);
@@ -1210,12 +1175,9 @@ impl CompileLlvm for LexerMonad<Node> {
                 }
             },
             Node::SpecialForm(_) => unreachable!("{self}"),
-            Node::Symbol(sym) => sym.compile_llvm(codegen, ctx, dbg_info),
+            Node::Symbol(sym) => sym.compile_llvm(codegen, ctx),
         }?;
 
-        if dbg_info {
-            codegen.emit_dbg_info(self, ctx);
-        }
         Ok(())
     }
 }

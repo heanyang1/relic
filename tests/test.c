@@ -12,7 +12,6 @@ int test() {
   rt_new_symbol("1234");
   char *s = rt_get_symbol(rt_pop());
   assert(strcmp(s, "1234") == 0);
-  rt_breakpoint();
 
   s = rt_get_symbol(rt_get("..."));
   assert(strcmp(s, "nil") == 0);

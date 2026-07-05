@@ -84,7 +84,7 @@ where
 ///
 /// A string representation of the result, or an error message
 pub fn run_node(node: LexerMonad<Node>) -> Result<String, String> {
-    node.jit_compile(false)?;
+    node.jit_compile()?;
     let mut runtime = RT.write().unwrap();
     let index = runtime.pop();
     Ok(runtime.display_node_idx(index))
@@ -181,9 +181,6 @@ pub extern "C" fn rt_new_closure(name: *const u8, func: CVoidFunc, nargs: usize,
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     let mut rt = RT.write().unwrap();
     if let Ok(name) = c_str.to_str() {
-        rt.api_called(format!(
-            "rt_new_closure({name}, <func>, {nargs}, {variadic})"
-        ));
         rt.try_gc();
 
         let val = Closure::new(name.to_string(), func, nargs, variadic, &rt);
@@ -197,7 +194,6 @@ pub extern "C" fn rt_new_closure(name: *const u8, func: CVoidFunc, nargs: usize,
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_c_func(cid: usize) -> Option<CVoidFunc> {
     let mut runtime = RT.write().unwrap();
-    runtime.api_called(format!("rt_get_c_func({cid})"));
     unwrap_result(runtime.get_c_func(cid), &mut runtime)
 }
 
@@ -205,7 +201,6 @@ pub extern "C" fn rt_get_c_func(cid: usize) -> Option<CVoidFunc> {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_list_to_stack() {
     let mut runtime = RT.write().unwrap();
-    runtime.api_called("rt_list_to_stack()");
     unwrap_result(runtime.list_to_stack(), &mut runtime);
 }
 
@@ -213,7 +208,6 @@ pub extern "C" fn rt_list_to_stack() {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_prepare_args(cid: usize) {
     let mut runtime = RT.write().unwrap();
-    runtime.api_called(format!("rt_prepare_args({cid})"));
     unwrap_result(runtime.prepare_args(cid), &mut runtime);
 }
 
@@ -221,7 +215,6 @@ pub extern "C" fn rt_prepare_args(cid: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_push(index: usize) {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_push({index})"));
     rt.push(index);
 }
 
@@ -229,7 +222,6 @@ pub extern "C" fn rt_push(index: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_pop() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_pop()");
     rt.pop()
 }
 
@@ -237,23 +229,20 @@ pub extern "C" fn rt_pop() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_swap() {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_swap()");
     rt.swap()
 }
 
 /// Calls [Runtime::top].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_top() -> usize {
-    let mut rt = RT.write().unwrap();
-    rt.api_called("rt_top()");
+    let rt = RT.write().unwrap();
     rt.top()
 }
 
 /// Calls [Runtime::display_node_idx].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_display_node_idx(index: usize) -> *mut i8 {
-    let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_display_node_idx({index})"));
+    let rt = RT.write().unwrap();
     let result = rt.display_node_idx(index);
     let c_str = std::ffi::CString::new(result).unwrap();
     c_str.into_raw()
@@ -263,7 +252,6 @@ pub extern "C" fn rt_display_node_idx(index: usize) -> *mut i8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_apply() -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_apply()".to_string());
     match rt.apply() {
         Ok(()) => 1,
         Err(e) => {
@@ -277,7 +265,6 @@ pub extern "C" fn rt_apply() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_read() {
     let mut rt = RT.write().unwrap();
-    rt.api_called("rt_read()");
     let mut input = String::new();
     loop {
         let mut current = String::new();
@@ -303,7 +290,6 @@ pub extern "C" fn rt_new_constant(expr: *const u8) {
     let mut rt = RT.write().unwrap();
     let c_str = unsafe { std::ffi::CStr::from_ptr(expr as *const i8) };
     if let Ok(expr_str) = c_str.to_str() {
-        rt.api_called(format!("rt_new_constant({expr_str})"));
         unwrap_result(expr_str.to_string().load_to(&mut rt), &mut rt);
     } else {
         rt.error("Error in rt_new_constant: invalid string");
@@ -316,7 +302,6 @@ pub extern "C" fn rt_new_symbol(name: *const u8) {
     let mut rt = RT.write().unwrap();
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name_str) = c_str.to_str() {
-        rt.api_called(format!("rt_new_symbol({name_str})"));
         unwrap_result(Symbol::from(name_str).load_to(&mut rt), &mut rt);
     } else {
         rt.error("Error in rt_new_symbol: invalid string");
@@ -327,7 +312,6 @@ pub extern "C" fn rt_new_symbol(name: *const u8) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_integer(value: i64) {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_new_integer({value})"));
     Number::Int(value).load_to(&mut rt).unwrap()
 }
 
@@ -335,15 +319,13 @@ pub extern "C" fn rt_new_integer(value: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_new_float(value: f64) {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_new_float({value})"));
     Number::Float(value).load_to(&mut rt).unwrap()
 }
 
 /// Calls [Runtime::current_env].
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_current_env() -> usize {
-    let mut rt = RT.write().unwrap();
-    rt.api_called("rt_current_env()");
+    let rt = RT.write().unwrap();
     rt.current_env()
 }
 
@@ -351,7 +333,6 @@ pub extern "C" fn rt_current_env() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_move_to_env(env: usize) {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_move_to_env({env})"));
     rt.move_to_env(env);
 }
 
@@ -361,9 +342,6 @@ pub extern "C" fn rt_define(key: *const u8, value: usize) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
     let mut env = rt_current_env();
     if let Ok(key_str) = c_str.to_str() {
-        RT.write()
-            .unwrap()
-            .api_called(format!("rt_define({key_str}, {value})"));
         env.define(&key_str.to_string(), value, &mut RT.write().unwrap());
     } else {
         RT.write()
@@ -377,9 +355,6 @@ pub extern "C" fn rt_set(key: *const u8, value: usize) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
     let mut env = rt_current_env();
     if let Ok(key_str) = c_str.to_str() {
-        RT.write()
-            .unwrap()
-            .api_called(format!("rt_set({key_str}, {value})"));
         if env
             .set(&key_str.to_string(), value, &mut RT.write().unwrap())
             .is_none()
@@ -398,7 +373,6 @@ pub extern "C" fn rt_get(key: *const u8) -> usize {
     let c_str = unsafe { std::ffi::CStr::from_ptr(key as *const i8) };
     let env = rt_current_env();
     if let Ok(key_str) = c_str.to_str() {
-        RT.write().unwrap().api_called(format!("rt_get({key_str})"));
         let mut runtime = RT.write().unwrap();
         match env.get(&key_str.to_string(), &runtime) {
             Some(val) => val,
@@ -419,7 +393,6 @@ pub extern "C" fn rt_get(key: *const u8) -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_set_car(index: usize, target: usize) -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_set_car({index}, {target})"));
     match rt.set_car(true, index, target) {
         Ok(()) => index,
         Err(e) => {
@@ -433,7 +406,6 @@ pub extern "C" fn rt_set_car(index: usize, target: usize) -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_set_cdr(index: usize, target: usize) -> usize {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_set_cdr({index}, {target})"));
     match rt.set_cdr(true, index, target) {
         Ok(()) => index,
         Err(e) => {
@@ -447,7 +419,6 @@ pub extern "C" fn rt_set_cdr(index: usize, target: usize) -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_integer(index: usize) -> i64 {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_get_integer({index})"));
     match rt.get_number(index) {
         Ok(Number::Int(val)) => val,
         Ok(_) => {
@@ -465,7 +436,6 @@ pub extern "C" fn rt_get_integer(index: usize) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_float(index: usize) -> f64 {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_get_float({index})"));
     match rt.get_number(index) {
         Ok(Number::Float(val)) => val,
         Ok(_) => {
@@ -483,7 +453,6 @@ pub extern "C" fn rt_get_float(index: usize) -> f64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_symbol(index: usize) -> *mut i8 {
     let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_get_symbol({index})"));
     match rt.get_symbol(index) {
         Ok(sym) => {
             let bytes = format!("{sym}").into_bytes();
@@ -501,8 +470,7 @@ pub extern "C" fn rt_get_symbol(index: usize) -> *mut i8 {
 /// Returns 1 if the symbol is not nil, 0 if it is nil.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_get_bool(index: usize) -> i32 {
-    let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_get_bool({index})"));
+    let rt = RT.write().unwrap();
     if let Ok(Symbol::Nil) = rt.get_symbol(index) {
         0
     } else {
@@ -515,8 +483,7 @@ pub extern "C" fn rt_get_bool(index: usize) -> i32 {
 /// Returns 1 if the node is a symbol, 0 otherwise.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
-    let mut rt = RT.write().unwrap();
-    rt.api_called(format!("rt_is_symbol({index})"));
+    let rt = RT.write().unwrap();
     if rt.get_symbol(index).is_ok() { 1 } else { 0 }
 }
 
@@ -525,9 +492,6 @@ pub extern "C" fn rt_is_symbol(index: usize) -> i32 {
 pub extern "C" fn rt_import(name: *const u8) {
     let c_str = unsafe { std::ffi::CStr::from_ptr(name as *const i8) };
     if let Ok(name_str) = c_str.to_str() {
-        RT.write()
-            .unwrap()
-            .api_called(format!("rt_import({name_str})"));
         if RT.read().unwrap().has_package(name_str) {
             return;
         }
@@ -539,20 +503,4 @@ pub extern "C" fn rt_import(name: *const u8) {
     }
 }
 
-/// Calls [Runtime::breakpoint].
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_breakpoint() {
-    RT.write().unwrap().breakpoint();
-}
 
-/// Calls [Runtime::evaluated].
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_evaluated(info: *const u8, optimized: i32) {
-    let c_str = unsafe { std::ffi::CStr::from_ptr(info as *const i8) };
-    let mut rt = RT.write().unwrap();
-    if let Ok(info) = c_str.to_str() {
-        rt.evaluated(info, optimized == 1);
-    } else {
-        rt.error("Error in rt_import: invalid string");
-    }
-}
